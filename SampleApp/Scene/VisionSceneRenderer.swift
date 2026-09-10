@@ -36,9 +36,6 @@ final class VisionSceneRenderer: @unchecked Sendable {
 
     let inFlightSemaphore = DispatchSemaphore(value: Constants.maxSimultaneousRenders)
 
-    private var lastRotationUpdateTimestamp: Date? = nil
-    private var rotation: Angle = .zero
-
     let arSession: ARKitSession
     let worldTracking: WorldTrackingProvider
 
@@ -118,8 +115,6 @@ final class VisionSceneRenderer: @unchecked Sendable {
     }
 
     private func viewports(drawable: LayerRenderer.Drawable, deviceAnchor: DeviceAnchor?) -> [ModelRendererViewportDescriptor] {
-        let rotationMatrix = matrix4x4_rotation(radians: Float(rotation.radians),
-                                                axis: Constants.rotationAxis)
         let translationMatrix = matrix4x4_translation(0.0, 0.0, Constants.modelCenterZ)
         // Turn common 3D GS PLY files rightside-up. This isn't generally meaningful, it just
         // happens to be a useful default for the most common datasets at the moment.
@@ -134,19 +129,9 @@ final class VisionSceneRenderer: @unchecked Sendable {
                                    y: Int(view.textureMap.viewport.height))
             return ModelRendererViewportDescriptor(viewport: view.textureMap.viewport,
                                                    projectionMatrix: projectionMatrix,
-                                                   viewMatrix: userViewpointMatrix * translationMatrix * rotationMatrix * commonUpCalibration,
+                                                   viewMatrix: userViewpointMatrix * translationMatrix * commonUpCalibration,
                                                    screenSize: screenSize)
         }
-    }
-
-    private func updateRotation() {
-        let now = Date()
-        defer {
-            lastRotationUpdateTimestamp = now
-        }
-
-        guard let lastRotationUpdateTimestamp else { return }
-        rotation += Constants.rotationPerSecond * now.timeIntervalSince(lastRotationUpdateTimestamp)
     }
 
     func renderFrame() {
@@ -181,7 +166,6 @@ final class VisionSceneRenderer: @unchecked Sendable {
 
         frame.startSubmission()
 
-        updateRotation()
         proceduralSplatController?.update()
 
         // Use first drawable for timing/anchor calculations

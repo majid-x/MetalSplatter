@@ -1,0 +1,12 @@
+{
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "abi-baseline-json" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer.abi.json",
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer-primary.dia",
+    "objc-header" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer-Swift.h",
+    "swiftdoc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer.swiftdoc",
+    "swiftmodule" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer.swiftmodule",
+    "swiftsourceinfo" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/x86_64/SampleBoxRenderer.swiftsourceinfo"
+  }
+}

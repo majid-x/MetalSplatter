@@ -1,0 +1,40 @@
+{
+  "source": "/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/ContentView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "MetalSplatter SampleApp",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 54
+        }
+      },
+      {
+        "comment": "",
+        "key": "Read Scene File",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 58
+        }
+      },
+      {
+        "comment": "",
+        "key": "Procedural Splat",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 88
+        }
+      },
+      {
+        "comment": "",
+        "key": "Show Sample Box",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 97
+        }
+      }
+    ]
+  },
+  "version": 1
+}

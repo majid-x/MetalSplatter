@@ -1,0 +1,4 @@
+module SampleBoxRenderer {
+header "SampleBoxRenderer-Swift.h"
+export *
+}

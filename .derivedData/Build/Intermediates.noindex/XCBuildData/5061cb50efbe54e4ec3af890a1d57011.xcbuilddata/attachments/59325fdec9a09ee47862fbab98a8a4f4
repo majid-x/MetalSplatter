@@ -1,0 +1,91 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatIO-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/AutodetectSceneReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/AutodetectSceneReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/AutodetectSceneReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/AutodetectSceneReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/Comparable+clamped.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/Comparable+clamped.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/Comparable+clamped.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/Comparable+clamped.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/DotSplatEncodedPoint.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatEncodedPoint.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatEncodedPoint.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatEncodedPoint.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/DotSplatSceneReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/DotSplatSceneWriter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneWriter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneWriter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/DotSplatSceneWriter.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SPZSceneReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SPZSceneWriter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneWriter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneWriter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SPZSceneWriter.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatFileFormat.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatFileFormat.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatFileFormat.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatFileFormat.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatMemoryBuffer.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatMemoryBuffer.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatMemoryBuffer.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatMemoryBuffer.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatPLYConstants.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYConstants.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYConstants.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYConstants.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatPLYSceneReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatPLYSceneWriter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneWriter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneWriter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPLYSceneWriter.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatPoint+CustomStringConvertible.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint+CustomStringConvertible.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint+CustomStringConvertible.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint+CustomStringConvertible.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatPoint.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatPoint.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatSceneReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/SplatSceneWriter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneWriter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneWriter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/x86_64/SplatSceneWriter.o"
+  }
+}

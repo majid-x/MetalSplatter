@@ -1,0 +1,15 @@
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/AsyncBufferingInputStream.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/AsyncBufferingOutputStream.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/BitPatternConvertible.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/ByteWidthProviding.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/DataConvertible.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement+ascii.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement+binary.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYHeader+ascii.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYHeader.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYReader.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYWriter.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/ReaderSource.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/UnsafeRawPointerConvertible.swift
+/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/WriterDestination.swift

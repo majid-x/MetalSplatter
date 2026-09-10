@@ -1,0 +1,86 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/AsyncBufferingInputStream.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingInputStream.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingInputStream.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingInputStream.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/AsyncBufferingOutputStream.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingOutputStream.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingOutputStream.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/AsyncBufferingOutputStream.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/BitPatternConvertible.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/BitPatternConvertible.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/BitPatternConvertible.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/BitPatternConvertible.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/ByteWidthProviding.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ByteWidthProviding.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ByteWidthProviding.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ByteWidthProviding.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/DataConvertible.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/DataConvertible.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/DataConvertible.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/DataConvertible.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement+ascii.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+ascii.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+ascii.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+ascii.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement+binary.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+binary.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+binary.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement+binary.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYElement.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYElement.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYHeader+ascii.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader+ascii.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader+ascii.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader+ascii.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYHeader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYHeader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYReader.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYReader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYReader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYReader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/PLYWriter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYWriter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYWriter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYWriter.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/ReaderSource.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ReaderSource.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ReaderSource.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/ReaderSource.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/UnsafeRawPointerConvertible.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/UnsafeRawPointerConvertible.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/UnsafeRawPointerConvertible.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/UnsafeRawPointerConvertible.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/WriterDestination.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/WriterDestination.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/WriterDestination.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/WriterDestination.o"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/GeneratedAssetSymbols.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/resource_bundle_accessor.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/resource_bundle_accessor.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/resource_bundle_accessor.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SampleBoxRenderer/Sources/SampleBoxRenderer.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/SampleBoxRenderer.build/Objects-normal/arm64/SampleBoxRenderer.o"
+  }
+}

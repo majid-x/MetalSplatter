@@ -1,0 +1,16 @@
+{
+  "source": "/Users/majid/Documents/Projects/MetalSplatter/SampleApp/App/SampleApp.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "MetalSplatter Sample App",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 9
+        }
+      }
+    ]
+  },
+  "version": 1
+}

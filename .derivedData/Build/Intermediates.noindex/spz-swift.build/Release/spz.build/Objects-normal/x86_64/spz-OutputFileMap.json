@@ -1,0 +1,46 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/CoordinateSystem.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/CoordinateSystem.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/CoordinateSystem.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/CoordinateSystem.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/GaussianCloud.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GaussianCloud.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GaussianCloud.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GaussianCloud.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/GzipCompression.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GzipCompression.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GzipCompression.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/GzipCompression.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/MathHelpers.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/MathHelpers.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/MathHelpers.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/MathHelpers.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/PackedGaussians.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/PackedGaussians.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/PackedGaussians.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/PackedGaussians.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/SPZLoader.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZLoader.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZLoader.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZLoader.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/SourcePackages/checkouts/spz-swift/Sources/spz/SPZSaver.swift" : {
+    "index-unit-output-path" : "/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZSaver.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZSaver.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/SPZSaver.o"
+  }
+}

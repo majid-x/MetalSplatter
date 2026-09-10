@@ -1,0 +1,4 @@
+module spz {
+header "spz-Swift.h"
+export *
+}

@@ -1,0 +1,4 @@
+module SplatIO {
+header "SplatIO-Swift.h"
+export *
+}

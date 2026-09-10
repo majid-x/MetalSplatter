@@ -1,0 +1,12 @@
+{
+  "/Users/majid/Documents/Projects/MetalSplatter/PLYIO/Sources/AsyncBufferingInputStream.swift" : {
+    "abi-baseline-json" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO.abi.json",
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-primary.dia",
+    "objc-header" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO-Swift.h",
+    "swiftdoc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO.swiftdoc",
+    "swiftmodule" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO.swiftmodule",
+    "swiftsourceinfo" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter.build/Release/PLYIO.build/Objects-normal/arm64/PLYIO.swiftsourceinfo"
+  }
+}
