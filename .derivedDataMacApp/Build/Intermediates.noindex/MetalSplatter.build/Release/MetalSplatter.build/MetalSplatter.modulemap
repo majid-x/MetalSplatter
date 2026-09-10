@@ -1,0 +1,4 @@
+module MetalSplatter {
+header "MetalSplatter-Swift.h"
+export *
+}

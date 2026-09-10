@@ -1,0 +1,56 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalSplatter-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/resource_bundle_accessor.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/resource_bundle_accessor.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/resource_bundle_accessor.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/EncodedSplatPoint.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/EncodedSplatPoint.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/EncodedSplatPoint.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/EncodedSplatPoint.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/MTLBufferPool.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MTLBufferPool.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MTLBufferPool.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MTLBufferPool.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/MetalBuffer.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalBuffer.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalBuffer.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/MetalBuffer.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/SplatChunk+sortByLocality.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk+sortByLocality.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk+sortByLocality.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk+sortByLocality.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/SplatChunk.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatChunk.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/SplatRenderer+Deprecated.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer+Deprecated.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer+Deprecated.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer+Deprecated.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/SplatRenderer.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatRenderer.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MetalSplatter/Sources/SplatSorter.swift" : {
+    "index-unit-output-path" : "/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatSorter.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatSorter.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/MetalSplatter.build/Objects-normal/arm64/SplatSorter.o"
+  }
+}

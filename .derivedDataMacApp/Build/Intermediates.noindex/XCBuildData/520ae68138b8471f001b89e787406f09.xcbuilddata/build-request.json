@@ -1,0 +1,65 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "b9672bbc62df39cbc089f41fc291d88b4174edf6c8a531f60b69a4954d596527"
+    }
+  ],
+  "containerPath" : "/Users/majid/Documents/Projects/MetalSplatter/MacApp/MacApp.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "arm64",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "hostTargetedPlatform" : null,
+      "platform" : "macosx",
+      "sdk" : "macosx26.4",
+      "sdkVariant" : "macos",
+      "supportedArchitectures" : [
+        "arm64e",
+        "arm64",
+        "x86_64"
+      ],
+      "targetArchitecture" : "arm64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Products",
+      "derivedDataPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp",
+      "indexDataStoreFolderPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Release",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES",
+          "TOOLCHAINS" : "com.apple.dt.toolchain.Metal.32023.883 $(inherited)"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

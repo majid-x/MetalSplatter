@@ -1,0 +1,12 @@
+{
+  "/Users/majid/Documents/Projects/MetalSplatter/MacApp/MacApp/MacAppApp.swift" : {
+    "abi-baseline-json" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp.abi.json",
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp-primary.dia",
+    "objc-header" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp-Swift.h",
+    "swiftdoc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp.swiftdoc",
+    "swiftmodule" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp.swiftmodule",
+    "swiftsourceinfo" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/x86_64/MacApp.swiftsourceinfo"
+  }
+}

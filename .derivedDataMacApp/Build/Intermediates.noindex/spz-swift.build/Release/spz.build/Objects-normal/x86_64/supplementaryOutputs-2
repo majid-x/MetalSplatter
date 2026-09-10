@@ -1,0 +1,12 @@
+{
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/SourcePackages/checkouts/spz-swift/Sources/spz/CoordinateSystem.swift" : {
+    "abi-baseline-json" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz.abi.json",
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-primary.dia",
+    "objc-header" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz-Swift.h",
+    "swiftdoc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz.swiftdoc",
+    "swiftmodule" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz.swiftmodule",
+    "swiftsourceinfo" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/spz-swift.build/Release/spz.build/Objects-normal/x86_64/spz.swiftsourceinfo"
+  }
+}

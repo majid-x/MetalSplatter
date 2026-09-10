@@ -1,0 +1,26 @@
+{
+  "" : {
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary.dia",
+    "emit-module-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary-emit-module.dia",
+    "pch" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacApp-primary.swiftdeps"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/MacApp.build/Release/MacApp.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/GeneratedAssetSymbols.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MacApp/MacApp/ContentView.swift" : {
+    "index-unit-output-path" : "/MacApp.build/Release/MacApp.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/ContentView.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/MacApp/MacApp/MacAppApp.swift" : {
+    "index-unit-output-path" : "/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacAppApp.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacAppApp.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MacApp.build/Release/MacApp.build/Objects-normal/arm64/MacAppApp.o"
+  }
+}

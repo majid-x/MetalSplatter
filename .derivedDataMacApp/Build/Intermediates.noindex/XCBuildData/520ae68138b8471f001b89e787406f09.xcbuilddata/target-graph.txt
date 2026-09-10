@@ -1,0 +1,27 @@
+Target dependency graph (9 targets)
+Target 'MacApp' in project 'MacApp'
+➜ Explicit dependency on target 'MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'SplatIO' in project 'MetalSplatter'
+Target 'SplatIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'SplatIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'PLYIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'spz' in project 'spz-swift'
+Target 'MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'MetalSplatter_MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'PLYIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'SplatIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'spz' in project 'spz-swift'
+Target 'MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'MetalSplatter_MetalSplatter' in project 'MetalSplatter'
+➜ Explicit dependency on target 'PLYIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'SplatIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'spz' in project 'spz-swift'
+Target 'SplatIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'PLYIO' in project 'MetalSplatter'
+➜ Explicit dependency on target 'spz' in project 'spz-swift'
+Target 'spz' in project 'spz-swift'
+➜ Explicit dependency on target 'spz' in project 'spz-swift'
+Target 'spz' in project 'spz-swift' (no dependencies)
+Target 'PLYIO' in project 'MetalSplatter' (no dependencies)
+Target 'MetalSplatter_MetalSplatter' in project 'MetalSplatter' (no dependencies)

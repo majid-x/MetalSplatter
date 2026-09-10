@@ -1,0 +1,12 @@
+{
+  "/Users/majid/Documents/Projects/MetalSplatter/SplatIO/Sources/AutodetectSceneReader.swift" : {
+    "abi-baseline-json" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO.abi.json",
+    "const-values" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO-primary.swiftconstvalues",
+    "dependencies" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO-primary.d",
+    "diagnostics" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO-primary.dia",
+    "objc-header" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO-Swift.h",
+    "swiftdoc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO.swiftdoc",
+    "swiftmodule" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO.swiftmodule",
+    "swiftsourceinfo" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedDataMacApp/Build/Intermediates.noindex/MetalSplatter.build/Release/SplatIO.build/Objects-normal/arm64/SplatIO.swiftsourceinfo"
+  }
+}

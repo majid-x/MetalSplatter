@@ -1,0 +1,61 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "metalsplatter",
+          "kind" : "fileSystem",
+          "location" : "/Users/majid/Documents/Projects/MetalSplatter",
+          "name" : "MetalSplatter"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/majid/Documents/Projects/MetalSplatter"
+        },
+        "subpath" : "metalsplatter"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "spz-swift",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/scier/spz-swift.git",
+          "name" : "spz-swift"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "e2410c91bceba2539c11157ad92e488ef6e16416",
+            "version" : "2.1.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "spz-swift"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-argument-parser",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/apple/swift-argument-parser",
+          "name" : "swift-argument-parser"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+            "version" : "1.8.2"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-argument-parser"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}
