@@ -47,14 +47,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var lastPickedCoordinate: SIMD3<Float>?
     /// Status line shown next to the Point Click UI.
     var pointClickStatus: String = "Point Click off"
+    /// Photos returned for the latest point-click search.
+    var searchedPhotos: [PhotoSearchResult] = []
+    /// True while a photo API request is in flight.
+    var isPhotoSearching = false
 
     private var lastCameraUpdateTimestamp: Date? = nil
     private var lastProjectionMatrix = matrix_identity_float4x4
     private var lastViewMatrix = matrix_identity_float4x4
     private var depthReadbackBuffer: MTLBuffer?
+    private var photoSearchTask: Task<Void, Never>?
+    private let photoSearchClient = PhotoSearchClient()
     var drawableSize: CGSize = .zero
 
-    /// Notifies SwiftUI overlays when pick / mode state changes.
+    /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
     var onPointClickStateChanged: (() -> Void)?
 
     init?(_ metalKitView: MTKView) {
@@ -80,8 +86,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPitch = 0
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
+        searchedPhotos = []
+        isPhotoSearching = false
+        photoSearchTask?.cancel()
+        photoSearchTask = nil
         if pointClickMode {
-            pointClickStatus = "Click a surface to read XYZ"
+            pointClickStatus = "Click a surface to find photos"
         } else {
             pointClickStatus = "Point Click off"
         }
@@ -126,9 +136,14 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         pointClickMode = enabled
         if enabled {
             lastPickedCoordinate = nil
-            pointClickStatus = "Click a surface to read XYZ"
+            searchedPhotos = []
+            isPhotoSearching = false
+            pointClickStatus = "Click a surface to find photos"
         } else {
             pointClickStatus = "Point Click off"
+            photoSearchTask?.cancel()
+            photoSearchTask = nil
+            isPhotoSearching = false
         }
         onPointClickStateChanged?()
     }
@@ -140,20 +155,72 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPitch = max(-Constants.cameraPitchLimit, min(Constants.cameraPitchLimit, cameraPitch))
     }
 
-    /// Pick the rendered surface under a click in view coordinates and store XYZ.
+    func clearPhotoSearch() {
+        photoSearchTask?.cancel()
+        photoSearchTask = nil
+        searchedPhotos = []
+        isPhotoSearching = false
+        if pointClickMode {
+            pointClickStatus = lastPickedCoordinate.map {
+                String(format: "X: %.3f   Y: %.3f   Z: %.3f", $0.x, $0.y, $0.z)
+            } ?? "Click a surface to find photos"
+        }
+        onPointClickStateChanged?()
+    }
+
+    /// Pick the rendered surface under a click and search nearby source photos.
     func handlePointClick(at viewPoint: CGPoint) {
         guard pointClickMode else { return }
 
         guard let world = worldPosition(at: viewPoint) else {
             lastPickedCoordinate = nil
+            searchedPhotos = []
+            isPhotoSearching = false
             pointClickStatus = "No surface at click"
             onPointClickStateChanged?()
             return
         }
 
         lastPickedCoordinate = world
-        pointClickStatus = String(format: "X: %.3f   Y: %.3f   Z: %.3f", world.x, world.y, world.z)
+        pointClickStatus = String(format: "X: %.3f   Y: %.3f   Z: %.3f · searching…", world.x, world.y, world.z)
+        searchedPhotos = []
+        isPhotoSearching = true
         onPointClickStateChanged?()
+
+        let camera = cameraPosition
+        let forward = cameraForward
+        photoSearchTask?.cancel()
+        photoSearchTask = Task { [photoSearchClient] in
+            do {
+                let photos = try await photoSearchClient.search(
+                    displayWorldPoint: world,
+                    cameraPosition: camera,
+                    viewDirection: forward,
+                    maxResults: 6
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.searchedPhotos = photos
+                    self.isPhotoSearching = false
+                    self.pointClickStatus = String(
+                        format: "X: %.3f   Y: %.3f   Z: %.3f · %d photos",
+                        world.x, world.y, world.z, photos.count
+                    )
+                    self.onPointClickStateChanged?()
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.searchedPhotos = []
+                    self.isPhotoSearching = false
+                    self.pointClickStatus = String(
+                        format: "X: %.3f   Y: %.3f   Z: %.3f · %@",
+                        world.x, world.y, world.z, error.localizedDescription
+                    )
+                    self.onPointClickStateChanged?()
+                }
+            }
+        }
     }
 
     private var cameraForward: SIMD3<Float> {

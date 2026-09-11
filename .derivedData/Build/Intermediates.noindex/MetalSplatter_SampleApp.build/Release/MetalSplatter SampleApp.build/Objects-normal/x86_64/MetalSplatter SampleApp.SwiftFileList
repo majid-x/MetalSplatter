@@ -2,6 +2,8 @@
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/ContentView.swift
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/Model/SampleBoxRenderer+ModelRenderer.swift
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/Util/MatrixMathUtil.swift
+/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Util/PhotoSearchClient.swift
+/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/PhotoSearchSidePanel.swift
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/VisionSceneRenderer.swift
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/App/SampleApp.swift
 /Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/MetalKitSceneRenderer.swift

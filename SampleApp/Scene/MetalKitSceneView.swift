@@ -17,58 +17,88 @@ struct MetalKitSceneView: View {
     @State private var rendererBox = RendererBox()
     @State private var pointClickMode = false
     @State private var pointClickStatus = "Point Click off"
+    @State private var searchedPhotos: [PhotoSearchResult] = []
+    @State private var isPhotoSearching = false
+    @State private var showPhotoPanel = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            MetalKitSceneRepresentable(
-                modelIdentifier: modelIdentifier,
-                rendererBox: rendererBox,
-                onPointClickStateChanged: {
-                    pointClickMode = rendererBox.renderer?.pointClickMode ?? false
-                    pointClickStatus = rendererBox.renderer?.pointClickStatus ?? "Point Click off"
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
+                MetalKitSceneRepresentable(
+                    modelIdentifier: modelIdentifier,
+                    rendererBox: rendererBox,
+                    onPointClickStateChanged: {
+                        pointClickMode = rendererBox.renderer?.pointClickMode ?? false
+                        pointClickStatus = rendererBox.renderer?.pointClickStatus ?? "Point Click off"
+                        searchedPhotos = rendererBox.renderer?.searchedPhotos ?? []
+                        isPhotoSearching = rendererBox.renderer?.isPhotoSearching ?? false
+                        if isPhotoSearching || !searchedPhotos.isEmpty {
+                            showPhotoPanel = true
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            VStack(spacing: 12) {
-                HStack {
-                    Button(pointClickMode ? "Point Click: On" : "Point Click") {
-                        let enabled = !pointClickMode
+                VStack(spacing: 12) {
+                    HStack {
+                        Button(pointClickMode ? "Point Click: On" : "Point Click") {
+                            let enabled = !pointClickMode
 #if os(macOS)
-                        rendererBox.cameraView?.setMouseLookActive(false)
+                            rendererBox.cameraView?.setMouseLookActive(false)
 #endif
-                        rendererBox.renderer?.setPointClickMode(enabled)
-                        pointClickMode = enabled
-                        pointClickStatus = rendererBox.renderer?.pointClickStatus ?? pointClickStatus
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(pointClickMode ? .orange : .accentColor)
+                            rendererBox.renderer?.setPointClickMode(enabled)
+                            pointClickMode = enabled
+                            pointClickStatus = rendererBox.renderer?.pointClickStatus ?? pointClickStatus
+                            if !enabled {
+                                showPhotoPanel = false
+                                searchedPhotos = []
+                                isPhotoSearching = false
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(pointClickMode ? .orange : .accentColor)
 
-                    if pointClickMode || pointClickStatus != "Point Click off" {
-                        Text(pointClickStatus)
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
-                    }
+                        if pointClickMode || pointClickStatus != "Point Click off" {
+                            Text(pointClickStatus)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                        }
 
-                    Spacer()
-                }
-                .padding(.horizontal)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
 
 #if os(macOS)
-                Text(pointClickMode
-                      ? "Point Click on · click a surface for XYZ · Esc exits look · toggle button to leave mode"
-                      : "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor")
-                    .font(.caption)
-                    .padding(8)
-                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                    Text(pointClickMode
+                          ? "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
+                          : "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor")
+                        .font(.caption)
+                        .padding(8)
+                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 #elseif os(iOS)
-                MovementPad(rendererBox: rendererBox)
+                    MovementPad(rendererBox: rendererBox)
 #endif
+                }
+                .padding()
             }
-            .padding()
+
+            if showPhotoPanel && pointClickMode {
+                Divider()
+                PhotoSearchSidePanel(
+                    photos: searchedPhotos,
+                    isLoading: isPhotoSearching,
+                    statusText: pointClickStatus,
+                    onClose: {
+                        showPhotoPanel = false
+                        rendererBox.renderer?.clearPhotoSearch()
+                        searchedPhotos = []
+                        isPhotoSearching = false
+                    }
+                )
+            }
         }
     }
 }

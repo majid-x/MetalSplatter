@@ -68,6 +68,11 @@
     "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/MetalKitSceneView.bc",
     "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/MetalKitSceneView.o"
   },
+  "/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/PhotoSearchSidePanel.swift" : {
+    "index-unit-output-path" : "/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchSidePanel.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchSidePanel.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchSidePanel.o"
+  },
   "/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Scene/VisionSceneRenderer.swift" : {
     "index-unit-output-path" : "/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/VisionSceneRenderer.o",
     "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/VisionSceneRenderer.bc",
@@ -77,5 +82,10 @@
     "index-unit-output-path" : "/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/MatrixMathUtil.o",
     "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/MatrixMathUtil.bc",
     "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/MatrixMathUtil.o"
+  },
+  "/Users/majid/Documents/Projects/MetalSplatter/SampleApp/Util/PhotoSearchClient.swift" : {
+    "index-unit-output-path" : "/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchClient.o",
+    "llvm-bc" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchClient.bc",
+    "object" : "/Users/majid/Documents/Projects/MetalSplatter/.derivedData/Build/Intermediates.noindex/MetalSplatter_SampleApp.build/Release/MetalSplatter SampleApp.build/Objects-normal/arm64/PhotoSearchClient.o"
   }
 }
