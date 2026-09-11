@@ -21,7 +21,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private static let log =
-        Logger(subsystem: Bundle.main.bundleIdentifier!,
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "MetalSplatter.SampleApp",
                category: "MetalKitSceneRenderer")
 
     let metalKitView: MTKView
@@ -340,10 +340,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         drawableSize = size
     }
-}
-
-private extension SIMD4 where Scalar == Float {
-    var xyz: SIMD3<Float> { SIMD3(x, y, z) }
 }
 
 #endif // os(iOS) || os(macOS)

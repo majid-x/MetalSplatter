@@ -30,3 +30,7 @@ func matrix_perspective_right_hand(fovyRadians fovy: Float, aspectRatio: Float, 
                                          vector_float4( 0,  0, zs, -1),
                                          vector_float4( 0,  0, zs * nearZ, 0)))
 }
+
+extension SIMD4 where Scalar == Float {
+    var xyz: SIMD3<Float> { SIMD3(x, y, z) }
+}
