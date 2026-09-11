@@ -7,7 +7,7 @@
         "key": "Point Click on · click a surface for XYZ · Esc exits look · toggle button to leave mode",
         "location": {
           "startingColumn": 25,
-          "startingLine": 71
+          "startingLine": 62
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor",
         "location": {
           "startingColumn": 25,
-          "startingLine": 72
+          "startingLine": 63
         }
       },
       {
@@ -23,7 +23,7 @@
         "key": "Point Click: On",
         "location": {
           "startingColumn": 45,
-          "startingLine": 37
+          "startingLine": 35
         }
       },
       {
@@ -31,7 +31,7 @@
         "key": "Point Click",
         "location": {
           "startingColumn": 65,
-          "startingLine": 37
+          "startingLine": 35
         }
       }
     ]

@@ -4,10 +4,6 @@
 <dict>
 	<key>files</key>
 	<dict>
-		<key>Resources/Harut_Splat_Coll.obj</key>
-		<data>
-		T0AlHwOvDbjuY8pXjiUE//KHdh8=
-		</data>
 		<key>Resources/MetalSplatter_MetalSplatter.bundle/Contents/Info.plist</key>
 		<data>
 		dRnMRm0hPSVPBe/uKX0CaxYt9Yo=
@@ -39,13 +35,6 @@
 	</dict>
 	<key>files2</key>
 	<dict>
-		<key>Resources/Harut_Splat_Coll.obj</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			LijkczADz3p2vmHVJVWByqbaUsSmPS48xg1XKCWYO1I=
-			</data>
-		</dict>
 		<key>Resources/MetalSplatter_MetalSplatter.bundle/Contents/Info.plist</key>
 		<dict>
 			<key>hash2</key>
