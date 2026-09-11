@@ -40,7 +40,7 @@ struct MetalKitSceneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 VStack(spacing: 12) {
-                    HStack {
+                    HStack(alignment: .top) {
                         Button(pointClickMode ? "Point Click: On" : "Point Click") {
                             let enabled = !pointClickMode
 #if os(macOS)
@@ -68,6 +68,17 @@ struct MetalKitSceneView: View {
                         }
 
                         Spacer()
+
+                        // Debug: live camera pose for setting a PLY spawn later.
+                        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                            Text(cameraDebugText)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.trailing)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                        }
                     }
                     .padding(.horizontal)
 
@@ -100,6 +111,19 @@ struct MetalKitSceneView: View {
                 )
             }
         }
+    }
+
+    private var cameraDebugText: String {
+        guard let renderer = rendererBox.renderer else {
+            return "cam: (no renderer)"
+        }
+        let p = renderer.cameraPosition
+        let yawDeg = renderer.cameraYaw * 180 / .pi
+        let pitchDeg = renderer.cameraPitch * 180 / .pi
+        return String(
+            format: "cam xyz: %.3f, %.3f, %.3f\nyaw: %.1f°  pitch: %.1f°",
+            p.x, p.y, p.z, yawDeg, pitchDeg
+        )
     }
 }
 

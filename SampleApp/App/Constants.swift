@@ -6,7 +6,7 @@ enum Constants {
 #if !os(visionOS)
     static let fovy = Angle(degrees: 65)
     /// Starting camera distance in front of the scene origin (looking down -Z).
-    static let cameraStartZ: Float = 8
+    static let cameraStartZ: Float = 1.54
     /// Units per second for WASD / arrow / on-screen move controls.
     static let cameraMoveSpeed: Float = 3.5
     /// Radians of look rotation per pixel of mouse / finger movement.
