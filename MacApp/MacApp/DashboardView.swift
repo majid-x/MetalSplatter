@@ -14,79 +14,24 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
     }
 }
 
-private enum ProjectFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case livingRoom = "Living room"
-    case garage = "Garage"
-
-    var id: String { rawValue }
-}
-
-private struct DashboardProject: Identifiable {
-    let id = UUID()
+private struct CatalogProject: Identifiable, Hashable {
+    let id: String
     let title: String
     let category: String
-    let filter: ProjectFilter
-    let imageURL: URL
+    let zipResourceName: String
     let accent: [Color]
 }
 
-private let dashboardProjects: [DashboardProject] = [
+private let catalogProjects: [CatalogProject] = [
     .init(
-        title: "Modern Living",
+        id: "hakob-outdoors",
+        title: "Hakob Outdoors",
         category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1600210492486-724fe5c67c32?w=800&q=80")!,
-        accent: [Color(red: 0.35, green: 0.28, blue: 0.22), Color(red: 0.12, green: 0.10, blue: 0.09)]
-    ),
-    .init(
-        title: "Urban Kitchen",
-        category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1556912173-46c336c7fd55?w=800&q=80")!,
-        accent: [Color(red: 0.22, green: 0.24, blue: 0.26), Color(red: 0.08, green: 0.09, blue: 0.10)]
-    ),
-    .init(
-        title: "Serene Bedroom",
-        category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=800&q=80")!,
-        accent: [Color(red: 0.28, green: 0.30, blue: 0.34), Color(red: 0.10, green: 0.11, blue: 0.13)]
-    ),
-    .init(
-        title: "Minimal Dining",
-        category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1617806118233-18e1de36777f?w=800&q=80")!,
-        accent: [Color(red: 0.40, green: 0.36, blue: 0.30), Color(red: 0.14, green: 0.12, blue: 0.10)]
-    ),
-    .init(
-        title: "Spa Bathroom",
-        category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=800&q=80")!,
-        accent: [Color(red: 0.30, green: 0.34, blue: 0.36), Color(red: 0.11, green: 0.12, blue: 0.13)]
-    ),
-    .init(
-        title: "Work Space",
-        category: "Residential",
-        filter: .garage,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80")!,
-        accent: [Color(red: 0.24, green: 0.26, blue: 0.30), Color(red: 0.09, green: 0.10, blue: 0.12)]
-    ),
-    .init(
-        title: "Elegant Entry",
-        category: "Residential",
-        filter: .livingRoom,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800&q=80")!,
-        accent: [Color(red: 0.32, green: 0.28, blue: 0.24), Color(red: 0.12, green: 0.10, blue: 0.09)]
-    ),
-    .init(
-        title: "Exterior Facade",
-        category: "Residential",
-        filter: .garage,
-        imageURL: URL(string: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80")!,
-        accent: [Color(red: 0.26, green: 0.28, blue: 0.30), Color(red: 0.08, green: 0.09, blue: 0.10)]
+        zipResourceName: "Archive",
+        accent: [
+            Color(red: 0.28, green: 0.36, blue: 0.34),
+            Color(red: 0.10, green: 0.12, blue: 0.11)
+        ]
     )
 ]
 
@@ -94,7 +39,7 @@ struct DashboardView: View {
     @Environment(AuthManager.self) private var authManager
 
     @State private var selectedTab: DashboardTab = .projects
-    @State private var selectedFilter: ProjectFilter = .all
+    @State private var openedProject: CatalogProject?
     @State private var searchText = ""
     @State private var isSearchPresented = false
 
@@ -103,17 +48,41 @@ struct DashboardView: View {
         return name.split(separator: " ").first.map(String.init) ?? name
     }
 
-    private var filteredProjects: [DashboardProject] {
-        dashboardProjects.filter { project in
-            let matchesFilter = selectedFilter == .all || project.filter == selectedFilter
-            let matchesSearch = searchText.isEmpty
+    private var filteredProjects: [CatalogProject] {
+        catalogProjects.filter { project in
+            searchText.isEmpty
                 || project.title.localizedCaseInsensitiveContains(searchText)
                 || project.category.localizedCaseInsensitiveContains(searchText)
-            return matchesFilter && matchesSearch
         }
     }
 
     var body: some View {
+        ZStack {
+            if let openedProject {
+                ProjectViewerView(
+                    title: openedProject.title,
+                    zipResourceName: openedProject.zipResourceName,
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            self.openedProject = nil
+                        }
+                    }
+                )
+                .transition(.opacity)
+            } else {
+                dashboardChrome
+                    .transition(.opacity)
+            }
+        }
+        .background(Color.black)
+        .preferredColorScheme(.dark)
+        .animation(.easeInOut(duration: 0.25), value: openedProject?.id)
+        .sheet(isPresented: $isSearchPresented) {
+            searchSheet
+        }
+    }
+
+    private var dashboardChrome: some View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: 210)
@@ -121,14 +90,7 @@ struct DashboardView: View {
             mainContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color.black)
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $isSearchPresented) {
-            searchSheet
-        }
     }
-
-    // MARK: Sidebar
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -175,35 +137,33 @@ struct DashboardView: View {
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(.white.opacity(0.08))
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(firstName)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-
-                        Menu {
-                            Button("Sign Out", role: .destructive) {
-                                Task { await authManager.signOut() }
-                            }
-                        } label: {
-                            Text("View Profile")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(.white.opacity(0.38))
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(.white.opacity(0.08))
+                    .frame(width: 36, height: 36)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.7))
                     }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(firstName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Menu {
+                        Button("Sign Out", role: .destructive) {
+                            Task { await authManager.signOut() }
+                        }
+                    } label: {
+                        Text("View Profile")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.38))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
             }
             .padding(.horizontal, 22)
@@ -211,8 +171,6 @@ struct DashboardView: View {
         }
         .background(Color.black)
     }
-
-    // MARK: Main
 
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -267,53 +225,6 @@ struct DashboardView: View {
                 }
 
                 Spacer()
-
-                Button {
-                    // Placeholder until project creation is wired.
-                } label: {
-                    Text("New Project +")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .overlay {
-                            Capsule()
-                                .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                        }
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
-            }
-            .padding(.horizontal, 36)
-
-            HStack(spacing: 10) {
-                ForEach(ProjectFilter.allCases) { filter in
-                    Button {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            selectedFilter = filter
-                        }
-                    } label: {
-                        Text(filter.rawValue)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(selectedFilter == filter ? .white : .white.opacity(0.55))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background {
-                                Capsule()
-                                    .fill(selectedFilter == filter ? Color.white.opacity(0.12) : .clear)
-                                    .overlay {
-                                        Capsule()
-                                            .strokeBorder(
-                                                selectedFilter == filter
-                                                    ? Color.clear
-                                                    : Color.white.opacity(0.22),
-                                                lineWidth: 1
-                                            )
-                                    }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.horizontal, 36)
 
@@ -328,7 +239,14 @@ struct DashboardView: View {
                     spacing: 28
                 ) {
                     ForEach(filteredProjects) { project in
-                        ProjectCardView(project: project)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                openedProject = project
+                            }
+                        } label: {
+                            ProjectCardView(project: project)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 36)
@@ -370,35 +288,34 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Card
-
 private struct ProjectCardView: View {
-    let project: DashboardProject
+    let project: CatalogProject
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AsyncImage(url: project.imageURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    placeholder
-                case .empty:
-                    ZStack {
-                        placeholder
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white.opacity(0.5))
-                    }
-                @unknown default:
-                    placeholder
+            ZStack {
+                LinearGradient(
+                    colors: project.accent,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                VStack(spacing: 10) {
+                    Image(systemName: "cube.transparent")
+                        .font(.system(size: 28, weight: .ultraLight))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text("Scene package")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.45))
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 168)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            }
 
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -414,29 +331,14 @@ private struct ProjectCardView: View {
 
                 Spacer(minLength: 8)
 
-                Menu {
-                    Button("Open") {}
-                    Button("Rename") {}
-                    Button("Delete", role: .destructive) {}
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .padding(.top, 2)
             }
             .padding(.horizontal, 2)
         }
-    }
-
-    private var placeholder: some View {
-        LinearGradient(
-            colors: project.accent,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        .contentShape(Rectangle())
     }
 }
 

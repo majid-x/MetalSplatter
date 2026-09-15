@@ -17,6 +17,24 @@
 		A10000000000000000000008 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* AuthManager.swift */; };
 		A10000000000000000000009 /* BrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* BrandMark.swift */; };
 		A1000000000000000000000A /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* DashboardView.swift */; };
+		C10000000000000000000001 /* ClientSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* ClientSceneView.swift */; };
+		C10000000000000000000002 /* ProjectViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000002 /* ProjectViewerView.swift */; };
+		C10000000000000000000003 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000003 /* Constants.swift */; };
+		C10000000000000000000004 /* ModelIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000004 /* ModelIdentifier.swift */; };
+		C10000000000000000000005 /* ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000005 /* ModelRenderer.swift */; };
+		C10000000000000000000006 /* SplatRenderer+ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000006 /* SplatRenderer+ModelRenderer.swift */; };
+		C10000000000000000000007 /* SampleBoxRenderer+ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000007 /* SampleBoxRenderer+ModelRenderer.swift */; };
+		C10000000000000000000008 /* ProceduralSplatController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000008 /* ProceduralSplatController.swift */; };
+		C10000000000000000000009 /* MatrixMathUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000009 /* MatrixMathUtil.swift */; };
+		C1000000000000000000000A /* PhotoSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000A /* PhotoSearchClient.swift */; };
+		C1000000000000000000000B /* SceneNavigationData.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000B /* SceneNavigationData.swift */; };
+		C1000000000000000000000C /* ScenePackageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000C /* ScenePackageLoader.swift */; };
+		C1000000000000000000000D /* StairRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000D /* StairRegion.swift */; };
+		C1000000000000000000000E /* WalkableCollisionBounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000E /* WalkableCollisionBounds.swift */; };
+		C1000000000000000000000F /* MetalKitSceneRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000F /* MetalKitSceneRenderer.swift */; };
+		C10000000000000000000010 /* PhotoSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000010 /* PhotoSearchSidePanel.swift */; };
+		C10000000000000000000011 /* Archive.zip in Resources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000011 /* Archive.zip */; };
+		C10000000000000000000020 /* SampleBoxRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = C40000000000000000000001 /* SampleBoxRenderer */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +47,23 @@
 		A20000000000000000000007 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* BrandMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMark.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		C20000000000000000000001 /* ClientSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSceneView.swift; sourceTree = "<group>"; };
+		C20000000000000000000002 /* ProjectViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectViewerView.swift; sourceTree = "<group>"; };
+		C20000000000000000000003 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		C20000000000000000000004 /* ModelIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelIdentifier.swift; sourceTree = "<group>"; };
+		C20000000000000000000005 /* ModelRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRenderer.swift; sourceTree = "<group>"; };
+		C20000000000000000000006 /* SplatRenderer+ModelRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplatRenderer+ModelRenderer.swift"; sourceTree = "<group>"; };
+		C20000000000000000000007 /* SampleBoxRenderer+ModelRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SampleBoxRenderer+ModelRenderer.swift"; sourceTree = "<group>"; };
+		C20000000000000000000008 /* ProceduralSplatController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProceduralSplatController.swift; sourceTree = "<group>"; };
+		C20000000000000000000009 /* MatrixMathUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMathUtil.swift; sourceTree = "<group>"; };
+		C2000000000000000000000A /* PhotoSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchClient.swift; sourceTree = "<group>"; };
+		C2000000000000000000000B /* SceneNavigationData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneNavigationData.swift; sourceTree = "<group>"; };
+		C2000000000000000000000C /* ScenePackageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePackageLoader.swift; sourceTree = "<group>"; };
+		C2000000000000000000000D /* StairRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StairRegion.swift; sourceTree = "<group>"; };
+		C2000000000000000000000E /* WalkableCollisionBounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkableCollisionBounds.swift; sourceTree = "<group>"; };
+		C2000000000000000000000F /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
+		C20000000000000000000010 /* PhotoSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchSidePanel.swift; sourceTree = "<group>"; };
+		C20000000000000000000011 /* Archive.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; path = Archive.zip; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,6 +74,7 @@
 				A10000000000000000000004 /* MetalSplatter in Frameworks */,
 				A10000000000000000000005 /* SplatIO in Frameworks */,
 				A10000000000000000000006 /* Supabase in Frameworks */,
+				C10000000000000000000020 /* SampleBoxRenderer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -62,10 +98,43 @@
 				A20000000000000000000007 /* AuthManager.swift */,
 				A20000000000000000000008 /* BrandMark.swift */,
 				A20000000000000000000009 /* DashboardView.swift */,
+				C20000000000000000000001 /* ClientSceneView.swift */,
+				C20000000000000000000002 /* ProjectViewerView.swift */,
+				C50000000000000000000002 /* Viewer */,
+				C50000000000000000000001 /* Resources */,
 				A20000000000000000000003 /* Assets.xcassets */,
 				A20000000000000000000004 /* Info.plist */,
 			);
 			path = MacApp;
+			sourceTree = "<group>";
+		};
+		C50000000000000000000001 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C20000000000000000000011 /* Archive.zip */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C50000000000000000000002 /* Viewer */ = {
+			isa = PBXGroup;
+			children = (
+				C20000000000000000000003 /* Constants.swift */,
+				C20000000000000000000004 /* ModelIdentifier.swift */,
+				C20000000000000000000005 /* ModelRenderer.swift */,
+				C20000000000000000000006 /* SplatRenderer+ModelRenderer.swift */,
+				C20000000000000000000007 /* SampleBoxRenderer+ModelRenderer.swift */,
+				C20000000000000000000008 /* ProceduralSplatController.swift */,
+				C20000000000000000000009 /* MatrixMathUtil.swift */,
+				C2000000000000000000000A /* PhotoSearchClient.swift */,
+				C2000000000000000000000B /* SceneNavigationData.swift */,
+				C2000000000000000000000C /* ScenePackageLoader.swift */,
+				C2000000000000000000000D /* StairRegion.swift */,
+				C2000000000000000000000E /* WalkableCollisionBounds.swift */,
+				C2000000000000000000000F /* MetalKitSceneRenderer.swift */,
+				C20000000000000000000010 /* PhotoSearchSidePanel.swift */,
+			);
+			path = Viewer;
 			sourceTree = "<group>";
 		};
 		A50000000000000000000003 /* Products */ = {
@@ -96,6 +165,7 @@
 				A40000000000000000000001 /* MetalSplatter */,
 				A40000000000000000000002 /* SplatIO */,
 				A40000000000000000000003 /* Supabase */,
+				C40000000000000000000001 /* SampleBoxRenderer */,
 			);
 			productName = MacApp;
 			productReference = A20000000000000000000005 /* MacApp.app */;
@@ -144,6 +214,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000003 /* Assets.xcassets in Resources */,
+				C10000000000000000000011 /* Archive.zip in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +231,22 @@
 				A10000000000000000000008 /* AuthManager.swift in Sources */,
 				A10000000000000000000009 /* BrandMark.swift in Sources */,
 				A1000000000000000000000A /* DashboardView.swift in Sources */,
+				C10000000000000000000001 /* ClientSceneView.swift in Sources */,
+				C10000000000000000000002 /* ProjectViewerView.swift in Sources */,
+				C10000000000000000000003 /* Constants.swift in Sources */,
+				C10000000000000000000004 /* ModelIdentifier.swift in Sources */,
+				C10000000000000000000005 /* ModelRenderer.swift in Sources */,
+				C10000000000000000000006 /* SplatRenderer+ModelRenderer.swift in Sources */,
+				C10000000000000000000007 /* SampleBoxRenderer+ModelRenderer.swift in Sources */,
+				C10000000000000000000008 /* ProceduralSplatController.swift in Sources */,
+				C10000000000000000000009 /* MatrixMathUtil.swift in Sources */,
+				C1000000000000000000000A /* PhotoSearchClient.swift in Sources */,
+				C1000000000000000000000B /* SceneNavigationData.swift in Sources */,
+				C1000000000000000000000C /* ScenePackageLoader.swift in Sources */,
+				C1000000000000000000000D /* StairRegion.swift in Sources */,
+				C1000000000000000000000E /* WalkableCollisionBounds.swift in Sources */,
+				C1000000000000000000000F /* MetalKitSceneRenderer.swift in Sources */,
+				C10000000000000000000010 /* PhotoSearchSidePanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,6 +403,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A90000000000000000000002 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
+		};
+		C40000000000000000000001 /* SampleBoxRenderer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SampleBoxRenderer;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
