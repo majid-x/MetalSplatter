@@ -17,8 +17,6 @@
 		61791DE42B4154FB00302B57 /* SampleBoxRenderer+ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61791DDC2B4154FB00302B57 /* SampleBoxRenderer+ModelRenderer.swift */; };
 		61791DE82B4154FB00302B57 /* ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61791DDE2B4154FB00302B57 /* ModelRenderer.swift */; };
 		61791DEA2B4154FB00302B57 /* MatrixMathUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61791DDF2B4154FB00302B57 /* MatrixMathUtil.swift */; };
-		61PHOTO01FILEBUILD00001 /* PhotoSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */; };
-		61PHOTO01FILEBUILD00002 /* PhotoSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */; };
 		61791E002B415D3F00302B57 /* MetalSplatter in Frameworks */ = {isa = PBXBuildFile; productRef = 61791DFF2B415D3F00302B57 /* MetalSplatter */; };
 		61791E022B415D3F00302B57 /* SampleBoxRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = 61791E012B415D3F00302B57 /* SampleBoxRenderer */; };
 		61791E102B41688000302B57 /* MetalKitSceneRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61791E0E2B41685800302B57 /* MetalKitSceneRenderer.swift */; };
@@ -26,7 +24,13 @@
 		61791E162B42297B00302B57 /* MetalKitSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61791E142B42294700302B57 /* MetalKitSceneView.swift */; };
 		617E50C92B314C4800F99766 /* PLYIO in Frameworks */ = {isa = PBXBuildFile; productRef = 617E50C82B314C4800F99766 /* PLYIO */; };
 		617E50CB2B314C4800F99766 /* SplatIO in Frameworks */ = {isa = PBXBuildFile; productRef = 617E50CA2B314C4800F99766 /* SplatIO */; };
+		61COLLIS01FILEBUILD00001 /* WalkableCollisionBounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */; };
 		61E963922F46D321002AD4B5 /* ProceduralSplatController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E963912F46D321002AD4B5 /* ProceduralSplatController.swift */; };
+		61NAV01FILEBUILD00000001 /* SceneNavigationData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61NAV01FILEREF00000001 /* SceneNavigationData.swift */; };
+		61NAV01FILEBUILD00000002 /* ScenePackageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61NAV01FILEREF00000002 /* ScenePackageLoader.swift */; };
+		61PHOTO01FILEBUILD00001 /* PhotoSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */; };
+		61PHOTO01FILEBUILD00002 /* PhotoSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */; };
+		61STAIR01FILEBUILD0000001 /* StairRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61STAIR01FILEREF00000001 /* StairRegion.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,8 +41,6 @@
 		61791DDC2B4154FB00302B57 /* SampleBoxRenderer+ModelRenderer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "SampleBoxRenderer+ModelRenderer.swift"; sourceTree = "<group>"; };
 		61791DDE2B4154FB00302B57 /* ModelRenderer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ModelRenderer.swift; sourceTree = "<group>"; };
 		61791DDF2B4154FB00302B57 /* MatrixMathUtil.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MatrixMathUtil.swift; sourceTree = "<group>"; };
-		61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchClient.swift; sourceTree = "<group>"; };
-		61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchSidePanel.swift; sourceTree = "<group>"; };
 		61791DF62B41551F00302B57 /* SampleApp.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SampleApp.swift; sourceTree = "<group>"; };
 		61791DF72B41551F00302B57 /* ContentView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		61791DF82B41551F00302B57 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -47,7 +49,14 @@
 		61791E112B416DCF00302B57 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		61791E142B42294700302B57 /* MetalKitSceneView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MetalKitSceneView.swift; sourceTree = "<group>"; };
 		617E50B02B314BE200F99766 /* MetalSplatter SampleApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MetalSplatter SampleApp.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkableCollisionBounds.swift; sourceTree = "<group>"; };
 		61E963912F46D321002AD4B5 /* ProceduralSplatController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProceduralSplatController.swift; sourceTree = "<group>"; };
+		61NAV01FILEREF00000001 /* SceneNavigationData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneNavigationData.swift; sourceTree = "<group>"; };
+		61NAV01FILEREF00000002 /* ScenePackageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePackageLoader.swift; sourceTree = "<group>"; };
+		61NAV01FILEREF00000003 /* nav.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = nav.txt; sourceTree = "<group>"; };
+		61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchClient.swift; sourceTree = "<group>"; };
+		61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchSidePanel.swift; sourceTree = "<group>"; };
+		61STAIR01FILEREF00000001 /* StairRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StairRegion.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -95,6 +104,10 @@
 			children = (
 				61791DDF2B4154FB00302B57 /* MatrixMathUtil.swift */,
 				61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */,
+				61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */,
+				61STAIR01FILEREF00000001 /* StairRegion.swift */,
+				61NAV01FILEREF00000001 /* SceneNavigationData.swift */,
+				61NAV01FILEREF00000002 /* ScenePackageLoader.swift */,
 			);
 			path = Util;
 			sourceTree = "<group>";
@@ -115,6 +128,14 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		61COLLIS01GROUP00000001 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				61NAV01FILEREF00000003 /* nav.txt */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		61E3FD792AE5CB0200032652 = {
 			isa = PBXGroup;
 			children = (
@@ -122,6 +143,7 @@
 				610347E12B468A0B00693CE3 /* Util */,
 				610347E02B468A0000693CE3 /* Scene */,
 				610347DF2B4689DB00693CE3 /* Model */,
+				61COLLIS01GROUP00000001 /* Resources */,
 				61791DF82B41551F00302B57 /* Info.plist */,
 				61791DC32B41514300302B57 /* Assets.xcassets */,
 				61E3FD832AE5CB0200032652 /* Products */,
@@ -220,6 +242,10 @@
 				61791DEA2B4154FB00302B57 /* MatrixMathUtil.swift in Sources */,
 				61PHOTO01FILEBUILD00001 /* PhotoSearchClient.swift in Sources */,
 				61PHOTO01FILEBUILD00002 /* PhotoSearchSidePanel.swift in Sources */,
+				61COLLIS01FILEBUILD00001 /* WalkableCollisionBounds.swift in Sources */,
+				61STAIR01FILEBUILD0000001 /* StairRegion.swift in Sources */,
+				61NAV01FILEBUILD00000001 /* SceneNavigationData.swift in Sources */,
+				61NAV01FILEBUILD00000002 /* ScenePackageLoader.swift in Sources */,
 				610347DB2B46875700693CE3 /* VisionSceneRenderer.swift in Sources */,
 				610347D92B46864500693CE3 /* SampleApp.swift in Sources */,
 				61791E102B41688000302B57 /* MetalKitSceneRenderer.swift in Sources */,

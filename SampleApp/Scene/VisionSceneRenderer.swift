@@ -68,7 +68,7 @@ final class VisionSceneRenderer: @unchecked Sendable {
         modelRenderer = nil
         proceduralSplatController = nil
         switch model {
-        case .gaussianSplat(let url):
+        case .gaussianSplat(let url, _):
             let splat = try SplatRenderer(device: device,
                                           colorFormat: layerRenderer.configuration.colorFormat,
                                           depthFormat: layerRenderer.configuration.depthFormat,

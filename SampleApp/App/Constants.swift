@@ -13,6 +13,14 @@ enum Constants {
     static let cameraLookSensitivity: Float = 0.005
     /// Max look-up / look-down angle from horizontal, in radians (~89°).
     static let cameraPitchLimit: Float = .pi / 2 - 0.01
+    /// Min distance between recorded walk samples while generating collision.
+    static let collisionSampleSpacing: Float = 0.05
+    /// Vertical climb/descend speed (Q/E) while marking stair vertices.
+    static let stairRecordClimbSpeed: Float = 1.5
+    /// How far outside the stair polygon still counts as on-stairs.
+    static let stairEdgePadding: Float = 0.15
+    /// Default floor height when not on a stair region.
+    static let cameraGroundY: Float = 0
 #endif
     /// Scene placement offset used on visionOS (head tracking provides viewpoint).
     static let modelCenterZ: Float = -8

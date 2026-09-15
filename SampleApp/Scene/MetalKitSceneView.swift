@@ -2,6 +2,7 @@
 
 import SwiftUI
 import MetalKit
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
@@ -20,6 +21,12 @@ struct MetalKitSceneView: View {
     @State private var searchedPhotos: [PhotoSearchResult] = []
     @State private var isPhotoSearching = false
     @State private var showPhotoPanel = false
+    @State private var isRecordingCollision = false
+#if os(iOS)
+    @State private var exportDocument = CollisionPathDocument(text: "")
+    @State private var isExportingNavigation = false
+#endif
+    @State private var isRecordingStairs = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -82,15 +89,81 @@ struct MetalKitSceneView: View {
                     }
                     .padding(.horizontal)
 
+                    HStack(spacing: 8) {
+                        Button(isRecordingCollision ? "Recording Collision…" : "Generate Collision") {
+                            let enabled = !isRecordingCollision
+                            if enabled { isRecordingStairs = false }
+                            rendererBox.renderer?.setCollisionRecording(enabled)
+                            isRecordingCollision = enabled
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(isRecordingCollision ? .red : .accentColor)
+
+                        if isRecordingCollision {
+                            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                let count = rendererBox.renderer?.recordedCollisionPoints.count ?? 0
+                                Text("Walk the area · \(count) samples · every \(String(format: "%.2f", Constants.collisionSampleSpacing))m")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal)
+
+                    HStack(spacing: 8) {
+                        Button(isRecordingStairs ? "Stair Mode: On" : "Stair Mode") {
+                            let enabled = !isRecordingStairs
+                            if enabled { isRecordingCollision = false }
 #if os(macOS)
-                    Text(pointClickMode
-                          ? "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
-                          : "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor")
+                            if enabled {
+                                rendererBox.cameraView?.setMouseLookActive(false)
+                            }
+#endif
+                            rendererBox.renderer?.setStairRecording(enabled)
+                            isRecordingStairs = enabled
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(isRecordingStairs ? .purple : .accentColor)
+
+                        if isRecordingStairs {
+                            Button("Undo") {
+                                _ = rendererBox.renderer?.undoStairPoint()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled((rendererBox.renderer?.recordedStairPoints.isEmpty) ?? true)
+
+                            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                let count = rendererBox.renderer?.recordedStairPoints.count ?? 0
+                                Text(stairMarkHint(pointCount: count))
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Button("Download TXT") {
+                            downloadNavigationTXT()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal)
+
+#if os(macOS)
+                    Text(helpCaption)
                         .font(.caption)
                         .padding(8)
                         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 #elseif os(iOS)
-                    MovementPad(rendererBox: rendererBox)
+                    MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs)
 #endif
                 }
                 .padding()
@@ -111,6 +184,38 @@ struct MetalKitSceneView: View {
                 )
             }
         }
+#if os(iOS)
+        .fileExporter(
+            isPresented: $isExportingNavigation,
+            document: exportDocument,
+            contentType: .plainText,
+            defaultFilename: "nav"
+        ) { _ in
+        }
+#endif
+    }
+
+    private var helpCaption: String {
+        if pointClickMode {
+            return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
+        }
+        if isRecordingStairs {
+            return "Stair Mode · click a surface corner to mark · right-click looks · Q/E moves camera · need ≥3 corners"
+        }
+        return "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor · Download TXT for zip packaging"
+    }
+
+    private func stairMarkHint(pointCount: Int) -> String {
+        switch pointCount {
+        case 0:
+            return "Click corners on the stair surface"
+        case 1:
+            return "1 corner · need 2 more for a triangle"
+        case 2:
+            return "2 corners · click 1 more to close a triangle"
+        default:
+            return "\(pointCount) corners · toggle Stair Mode off to apply · Download TXT when ready"
+        }
     }
 
     private var cameraDebugText: String {
@@ -125,7 +230,46 @@ struct MetalKitSceneView: View {
             p.x, p.y, p.z, yawDeg, pitchDeg
         )
     }
+
+    private func downloadNavigationTXT() {
+        guard let text = rendererBox.renderer?.navigationExportText() else { return }
+#if os(macOS)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.nameFieldStringValue = "nav.txt"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+#elseif os(iOS)
+        exportDocument = CollisionPathDocument(text: text)
+        isExportingNavigation = true
+#endif
+    }
 }
+
+#if os(iOS)
+private struct CollisionPathDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        text = configuration.file.regularFileContents
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
+#endif
 
 @MainActor
 final class RendererBox {
@@ -138,9 +282,16 @@ final class RendererBox {
 #if os(iOS)
 private struct MovementPad: View {
     let rendererBox: RendererBox
+    var showVertical = false
 
     var body: some View {
         VStack(spacing: 8) {
+            if showVertical {
+                HStack(spacing: 8) {
+                    holdButton(systemName: "chevron.up", set: { $0.up = $1 })
+                    holdButton(systemName: "chevron.down", set: { $0.down = $1 })
+                }
+            }
             holdButton(systemName: "arrow.up", set: { $0.forward = $1 })
             HStack(spacing: 8) {
                 holdButton(systemName: "arrow.left", set: { $0.left = $1 })
@@ -262,6 +413,8 @@ final class CameraControlMTKView: MTKView {
         static let s: UInt16 = 1
         static let d: UInt16 = 2
         static let w: UInt16 = 13
+        static let q: UInt16 = 12
+        static let e: UInt16 = 14
         static let escape: UInt16 = 53
         static let leftArrow: UInt16 = 123
         static let rightArrow: UInt16 = 124
@@ -312,11 +465,28 @@ final class CameraControlMTKView: MTKView {
             return
         }
 
+        if renderer?.isRecordingStairs == true {
+            setMouseLookActive(false)
+            _ = renderer?.markStairPoint(at: locationInView)
+            return
+        }
+
+        setMouseLookActive(true)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        // In stair mode, right-click toggles look so left-click can mark surfaces.
+        if renderer?.isRecordingStairs == true || renderer?.pointClickMode == true {
+            setMouseLookActive(!isMouseLookActive)
+            return
+        }
         setMouseLookActive(true)
     }
 
     override func mouseMoved(with event: NSEvent) {
         guard isMouseLookActive, renderer?.pointClickMode != true else { return }
+        // Allow look while stair marking if right-click enabled it.
         renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
     }
 
@@ -348,11 +518,14 @@ final class CameraControlMTKView: MTKView {
 
     private func applyMovementFromKeys() {
         guard let renderer else { return }
+        let stairRecording = renderer.isRecordingStairs
         renderer.movement = .init(
             forward: pressedKeys.contains(KeyCode.w) || pressedKeys.contains(KeyCode.upArrow),
             backward: pressedKeys.contains(KeyCode.s) || pressedKeys.contains(KeyCode.downArrow),
             left: pressedKeys.contains(KeyCode.a) || pressedKeys.contains(KeyCode.leftArrow),
-            right: pressedKeys.contains(KeyCode.d) || pressedKeys.contains(KeyCode.rightArrow)
+            right: pressedKeys.contains(KeyCode.d) || pressedKeys.contains(KeyCode.rightArrow),
+            up: stairRecording && pressedKeys.contains(KeyCode.q),
+            down: stairRecording && pressedKeys.contains(KeyCode.e)
         )
     }
 }
@@ -380,7 +553,8 @@ final class CameraControlMTKView: MTKView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard renderer?.pointClickMode != true else { return }
+        guard renderer?.pointClickMode != true,
+              renderer?.isRecordingStairs != true else { return }
         guard let touch = touches.first, let start = touchStartLocation else { return }
         let location = touch.location(in: self)
         let delta = CGPoint(x: location.x - start.x, y: location.y - start.y)
@@ -401,11 +575,17 @@ final class CameraControlMTKView: MTKView {
             didDragLook = false
         }
 
-        guard renderer?.pointClickMode == true,
-              !didDragLook,
+        guard !didDragLook,
               let location = touches.first?.location(in: self) else {
             return
         }
+
+        if renderer?.isRecordingStairs == true {
+            _ = renderer?.markStairPoint(at: location)
+            return
+        }
+
+        guard renderer?.pointClickMode == true else { return }
         renderer?.handlePointClick(at: location)
     }
 

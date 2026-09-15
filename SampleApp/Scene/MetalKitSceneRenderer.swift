@@ -16,8 +16,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         var backward = false
         var left = false
         var right = false
+        /// Used while recording stairs (Q / E or on-screen up/down).
+        var up = false
+        var down = false
 
-        var isActive: Bool { forward || backward || left || right }
+        var isActive: Bool { forward || backward || left || right || up || down }
+        var hasHorizontal: Bool { forward || backward || left || right }
     }
 
     private static let log =
@@ -52,12 +56,32 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// True while a photo API request is in flight.
     var isPhotoSearching = false
 
+    /// When true, walk positions are sampled into `recordedCollisionPoints`.
+    var isRecordingCollision = false
+    /// World-space camera positions visited while recording (for walkable bounds).
+    private(set) var recordedCollisionPoints: [SIMD3<Float>] = []
+    private var lastRecordedCollisionPoint: SIMD3<Float>?
+
+    /// When true, stair polygon vertices are placed manually (Mark Point).
+    var isRecordingStairs = false
+    /// Stair polygon corners (need ≥ 3). Y is height at that corner.
+    private(set) var recordedStairPoints: [SIMD3<Float>] = []
+    /// Active stair height region (from scene package and/or last marked polygon).
+    private var stairRegion: StairRegion? = nil
+    /// Standing height when off stairs. Only changes while walking on a stair region.
+    private var persistentFloorY: Float = Constants.cameraGroundY
+
     private var lastCameraUpdateTimestamp: Date? = nil
     private var lastProjectionMatrix = matrix_identity_float4x4
     private var lastViewMatrix = matrix_identity_float4x4
     private var depthReadbackBuffer: MTLBuffer?
     private var photoSearchTask: Task<Void, Never>?
     private let photoSearchClient = PhotoSearchClient()
+    /// Walkable region from scene package or a finished collision recording.
+    private var walkableBounds: WalkableCollisionBounds? = nil
+    /// Collision / stair source points kept for "Download TXT" re-export.
+    private var loadedCollisionPoints: [SIMD3<Float>] = []
+    private var loadedStairVertices: [SIMD3<Float>] = []
     var drawableSize: CGSize = .zero
 
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
@@ -84,6 +108,14 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPosition = SIMD3<Float>(0, 0, Constants.cameraStartZ)
         cameraYaw = 0
         cameraPitch = 0
+        persistentFloorY = Constants.cameraGroundY
+        walkableBounds = nil
+        stairRegion = nil
+        loadedCollisionPoints = []
+        loadedStairVertices = []
+        recordedCollisionPoints = []
+        recordedStairPoints = []
+        lastRecordedCollisionPoint = nil
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
         searchedPhotos = []
@@ -98,7 +130,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         onPointClickStateChanged?()
 
         switch model {
-        case .gaussianSplat(let url):
+        case .gaussianSplat(let url, let navigation):
             let splat = try SplatRenderer(device: device,
                                           colorFormat: metalKitView.colorPixelFormat,
                                           depthFormat: metalKitView.depthStencilPixelFormat,
@@ -110,6 +142,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             let chunk = try SplatChunk(device: device, from: points)
             await splat.addChunk(chunk)
             modelRenderer = splat
+            if let navigation {
+                applyNavigation(navigation)
+            }
         case .proceduralSplat:
             let controller = try await ProceduralSplatController(
                 device: device,
@@ -130,6 +165,26 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         case .none:
             break
         }
+    }
+
+    /// Apply start pose + collision + stairs from a scene package `nav.txt`.
+    func applyNavigation(_ data: SceneNavigationData) {
+        cameraPosition = data.startPosition
+        cameraYaw = data.startYawRadians
+        cameraPitch = data.startPitchRadians
+        persistentFloorY = data.startPosition.y
+
+        loadedCollisionPoints = data.collisionPoints
+        if let bounds = WalkableCollisionBounds.fromPoints(data.collisionPoints) {
+            walkableBounds = bounds
+        }
+
+        loadedStairVertices = data.stairVertices
+        if let region = StairRegion.make(vertices: data.stairVertices) {
+            stairRegion = region
+        }
+
+        applyStairOrGroundHeight()
     }
 
     func setPointClickMode(_ enabled: Bool) {
@@ -166,6 +221,127 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             } ?? "Click a surface to find photos"
         }
         onPointClickStateChanged?()
+    }
+
+    /// Start or stop sampling the camera path for a walkable collision region.
+    func setCollisionRecording(_ enabled: Bool) {
+        if enabled {
+            setStairRecording(false)
+        }
+        isRecordingCollision = enabled
+        if enabled {
+            recordedCollisionPoints.removeAll(keepingCapacity: true)
+            lastRecordedCollisionPoint = nil
+            recordCollisionSampleIfNeeded(force: true)
+        } else if recordedCollisionPoints.count >= 3 {
+            loadedCollisionPoints = recordedCollisionPoints
+            walkableBounds = WalkableCollisionBounds.fromPoints(recordedCollisionPoints)
+        }
+    }
+
+    /// Combined nav.txt for packaging with a PLY inside a zip.
+    func navigationExportText() -> String {
+        let collision = !recordedCollisionPoints.isEmpty ? recordedCollisionPoints : loadedCollisionPoints
+        let stairs: [SIMD3<Float>]
+        if recordedStairPoints.count >= 3 {
+            stairs = recordedStairPoints
+        } else {
+            stairs = loadedStairVertices
+        }
+        return SceneNavigationData(
+            startPosition: cameraPosition,
+            startYawRadians: cameraYaw,
+            startPitchRadians: cameraPitch,
+            collisionPoints: collision,
+            stairVertices: stairs
+        ).serialize()
+    }
+
+    /// Plain-text export of recorded samples (one `x y z` per line).
+    func collisionPathExportText() -> String? {
+        guard !recordedCollisionPoints.isEmpty else { return nil }
+        var lines: [String] = [
+            "# MetalSplatter collision path",
+            "# World-space camera XYZ samples (same frame as cam debug overlay)",
+            "# One sample per line: x y z",
+            "# min_spacing \(Constants.collisionSampleSpacing)",
+        ]
+        for p in recordedCollisionPoints {
+            lines.append(String(format: "%.6f %.6f %.6f", p.x, p.y, p.z))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func recordCollisionSampleIfNeeded(force: Bool = false) {
+        guard isRecordingCollision else { return }
+        let position = cameraPosition
+        if !force, let last = lastRecordedCollisionPoint {
+            if simd_distance(position, last) < Constants.collisionSampleSpacing {
+                return
+            }
+        }
+        recordedCollisionPoints.append(position)
+        lastRecordedCollisionPoint = position
+    }
+
+    /// Start or stop stair polygon marking (click surface corners; Q/E moves the camera).
+    func setStairRecording(_ enabled: Bool) {
+        if enabled {
+            setCollisionRecording(false)
+        }
+        isRecordingStairs = enabled
+        if enabled {
+            recordedStairPoints.removeAll(keepingCapacity: true)
+        } else {
+            commitStairRegionIfPossible()
+        }
+    }
+
+    /// Place a stair polygon vertex at the world surface under the cursor.
+    /// Converts depth-pick (model) coords into camera navigation space.
+    @discardableResult
+    func markStairPoint(at viewPoint: CGPoint) -> Bool {
+        guard isRecordingStairs else { return false }
+        guard let modelPoint = worldPosition(at: viewPoint) else { return false }
+        let world = SplatNavigationSpace.fromModel(modelPoint)
+        if let last = recordedStairPoints.last,
+           simd_distance(last, world) < 0.02 {
+            return false
+        }
+        recordedStairPoints.append(world)
+        return true
+    }
+
+    /// Remove the last marked stair vertex.
+    @discardableResult
+    func undoStairPoint() -> Bool {
+        guard isRecordingStairs, !recordedStairPoints.isEmpty else { return false }
+        recordedStairPoints.removeLast()
+        return true
+    }
+
+    /// Plain-text export of stair polygon vertices (one `x y z` per line).
+    func stairPathExportText() -> String? {
+        guard recordedStairPoints.count >= 3 else { return nil }
+        var lines: [String] = [
+            "# MetalSplatter stair region",
+            "# Polygon vertices in order (triangle / quad / n-gon)",
+            "# Height inside the area is interpolated from vertex Y values",
+            "# Click surface corners in Stair Mode; Q/E only moves the camera",
+            "# One vertex per line: x y z",
+        ]
+        for p in recordedStairPoints {
+            lines.append(String(format: "%.6f %.6f %.6f", p.x, p.y, p.z))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func commitStairRegionIfPossible() {
+        if let region = StairRegion.make(vertices: recordedStairPoints) {
+            stairRegion = region
+            loadedStairVertices = recordedStairPoints
+            applyStairOrGroundHeight()
+        }
     }
 
     /// Pick the rendered surface under a click and search nearby source photos.
@@ -302,8 +478,44 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if movement.left { direction -= right }
 
         let length = simd_length(direction)
-        guard length > 0 else { return }
-        cameraPosition += (direction / length) * Constants.cameraMoveSpeed * deltaTime
+        if length > 0 {
+            let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
+            // While recording collision/stairs, allow free XZ; otherwise stay in walkable region.
+            if isRecordingCollision || isRecordingStairs {
+                cameraPosition = proposed
+            } else if let walkableBounds {
+                cameraPosition = walkableBounds.clamp(proposed)
+            } else {
+                cameraPosition = proposed
+            }
+        }
+
+        if isRecordingStairs {
+            if movement.up {
+                cameraPosition.y += Constants.stairRecordClimbSpeed * deltaTime
+            }
+            if movement.down {
+                cameraPosition.y -= Constants.stairRecordClimbSpeed * deltaTime
+            }
+        } else if isRecordingCollision {
+            recordCollisionSampleIfNeeded()
+        } else {
+            applyStairOrGroundHeight()
+        }
+    }
+
+    private func applyStairOrGroundHeight() {
+        if let stairRegion, let height = stairRegion.navigationHeight(at: cameraPosition) {
+            // On stairs: climb between normal ground and normal upper floor.
+            persistentFloorY = height
+            cameraPosition.y = height
+        } else if let stairRegion {
+            // Off stairs: stick to the nearer normal floor (ground or upper).
+            persistentFloorY = stairRegion.nearestFloorY(to: persistentFloorY)
+            cameraPosition.y = persistentFloorY
+        } else {
+            cameraPosition.y = persistentFloorY
+        }
     }
 
     private func worldPosition(at viewPoint: CGPoint) -> SIMD3<Float>? {

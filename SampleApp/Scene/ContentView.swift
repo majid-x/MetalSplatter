@@ -55,7 +55,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Button("Read Scene File") {
+            Button("Read Scene Package") {
                 isPickingFile = true
             }
             .padding()
@@ -65,11 +65,7 @@ struct ContentView: View {
             .disabled(immersiveSpaceIsShown)
 #endif
             .fileImporter(isPresented: $isPickingFile,
-                          allowedContentTypes: [
-                            UTType(filenameExtension: "ply")!,
-                            UTType(filenameExtension: "splat")!,
-                            UTType(filenameExtension: "spz")!,
-                          ]) {
+                          allowedContentTypes: ScenePackageLoader.importContentTypes) {
                 isPickingFile = false
                 switch $0 {
                 case .success(let url):
@@ -79,7 +75,15 @@ struct ContentView: View {
                         try await Task.sleep(for: .seconds(10))
                         url.stopAccessingSecurityScopedResource()
                     }
-                    openWindow(value: ModelIdentifier.gaussianSplat(url))
+                    do {
+                        let package = try ScenePackageLoader.load(from: url)
+                        openWindow(value: ModelIdentifier.gaussianSplat(package.modelURL, navigation: package.navigation))
+                    } catch {
+                        // Keep the previous PLY-only path usable if package parsing fails.
+                        if ["ply", "splat", "spz"].contains(url.pathExtension.lowercased()) {
+                            openWindow(value: ModelIdentifier.gaussianSplat(url, navigation: nil))
+                        }
+                    }
                 case .failure:
                     break
                 }
