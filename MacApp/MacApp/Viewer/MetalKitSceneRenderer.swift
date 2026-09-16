@@ -175,9 +175,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         persistentFloorY = data.startPosition.y
 
         loadedCollisionPoints = data.collisionPoints
-        if let bounds = WalkableCollisionBounds.fromPoints(data.collisionPoints) {
-            walkableBounds = bounds
-        }
+        let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
+        walkableBounds = WalkableCollisionBounds.fromClusters(clusters)
 
         loadedStairVertices = data.stairVertices
         if let region = StairRegion.make(vertices: data.stairVertices) {
@@ -234,8 +233,10 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             lastRecordedCollisionPoint = nil
             recordCollisionSampleIfNeeded(force: true)
         } else if recordedCollisionPoints.count >= 3 {
-            loadedCollisionPoints = recordedCollisionPoints
-            walkableBounds = WalkableCollisionBounds.fromPoints(recordedCollisionPoints)
+            // Merge with any previously loaded floors so ground + upper stay available.
+            let merged = loadedCollisionPoints + recordedCollisionPoints
+            loadedCollisionPoints = merged
+            walkableBounds = WalkableCollisionBounds.fromPoints(merged)
         }
     }
 
@@ -480,7 +481,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let length = simd_length(direction)
         if length > 0 {
             let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
-            // While recording collision/stairs, allow free XZ; otherwise stay in walkable region.
+            // While recording collision/stairs, allow free XZ.
+            // Otherwise clamp using only the collision layer for the current camera height.
             if isRecordingCollision || isRecordingStairs {
                 cameraPosition = proposed
             } else if let walkableBounds {

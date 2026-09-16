@@ -22,6 +22,10 @@ enum Constants {
     /// Default floor height when not on a stair region.
     static let cameraGroundY: Float = 0
 #endif
+    /// Half-band (meters) around a collision layer's floor Y where that layer applies.
+    static let collisionFloorHalfHeight: Float = 0.45
+    /// Cluster gap (meters) when splitting recorded collision samples into floors.
+    static let collisionFloorClusterGap: Float = 0.45
     /// Scene placement offset used on visionOS (head tracking provides viewpoint).
     static let modelCenterZ: Float = -8
 

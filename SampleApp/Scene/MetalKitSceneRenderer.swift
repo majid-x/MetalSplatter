@@ -66,8 +66,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var isRecordingStairs = false
     /// Stair polygon corners (need ≥ 3). Y is height at that corner.
     private(set) var recordedStairPoints: [SIMD3<Float>] = []
-    /// Active stair height region (from scene package and/or last marked polygon).
-    private var stairRegion: StairRegion? = nil
+    /// All active stair height regions (from package and/or marked polygons).
+    private var stairRegions: [StairRegion] = []
     /// Standing height when off stairs. Only changes while walking on a stair region.
     private var persistentFloorY: Float = Constants.cameraGroundY
 
@@ -79,9 +79,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private let photoSearchClient = PhotoSearchClient()
     /// Walkable region from scene package or a finished collision recording.
     private var walkableBounds: WalkableCollisionBounds? = nil
-    /// Collision / stair source points kept for "Download TXT" re-export.
+    /// Collision / stair source kept for Save / Download TXT.
     private var loadedCollisionPoints: [SIMD3<Float>] = []
-    private var loadedStairVertices: [SIMD3<Float>] = []
+    private var loadedStairPolygons: [[SIMD3<Float>]] = []
+    /// Explicit start pose for Save / Download (Mark Start overwrites this).
+    private var savedStartPosition = SIMD3<Float>(0, 0, Constants.cameraStartZ)
+    private var savedStartYaw: Float = 0
+    private var savedStartPitch: Float = 0
     var drawableSize: CGSize = .zero
 
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
@@ -110,12 +114,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPitch = 0
         persistentFloorY = Constants.cameraGroundY
         walkableBounds = nil
-        stairRegion = nil
+        stairRegions = []
         loadedCollisionPoints = []
-        loadedStairVertices = []
+        loadedStairPolygons = []
         recordedCollisionPoints = []
         recordedStairPoints = []
         lastRecordedCollisionPoint = nil
+        savedStartPosition = cameraPosition
+        savedStartYaw = 0
+        savedStartPitch = 0
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
         searchedPhotos = []
@@ -169,22 +176,90 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// Apply start pose + collision + stairs from a scene package `nav.txt`.
     func applyNavigation(_ data: SceneNavigationData) {
+        savedStartPosition = data.startPosition
+        savedStartYaw = data.startYawRadians
+        savedStartPitch = data.startPitchRadians
         cameraPosition = data.startPosition
         cameraYaw = data.startYawRadians
         cameraPitch = data.startPitchRadians
         persistentFloorY = data.startPosition.y
 
         loadedCollisionPoints = data.collisionPoints
-        if let bounds = WalkableCollisionBounds.fromPoints(data.collisionPoints) {
-            walkableBounds = bounds
-        }
+        let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
+        walkableBounds = WalkableCollisionBounds.fromClusters(clusters)
 
-        loadedStairVertices = data.stairVertices
-        if let region = StairRegion.make(vertices: data.stairVertices) {
-            stairRegion = region
-        }
+        loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
+        rebuildStairRegions()
 
         applyStairOrGroundHeight()
+    }
+
+    /// Clear all collision layers and stop applying walkable clamp.
+    func resetCollision() {
+        setCollisionRecording(false)
+        recordedCollisionPoints.removeAll(keepingCapacity: true)
+        lastRecordedCollisionPoint = nil
+        loadedCollisionPoints = []
+        walkableBounds = nil
+    }
+
+    /// Clear all stair polygons and stop stair height following.
+    func resetStairs() {
+        setStairRecording(false)
+        recordedStairPoints.removeAll(keepingCapacity: true)
+        loadedStairPolygons = []
+        stairRegions = []
+        applyStairOrGroundHeight()
+    }
+
+    /// Overwrite the packaged start pose with the current camera.
+    func markStartPoint() {
+        savedStartPosition = cameraPosition
+        savedStartYaw = cameraYaw
+        savedStartPitch = cameraPitch
+    }
+
+    /// Commit any in-progress recording and apply collision / stairs / start live.
+    func saveNavigation() {
+        if isRecordingCollision {
+            setCollisionRecording(false)
+        }
+        if isRecordingStairs {
+            setStairRecording(false)
+        }
+
+        walkableBounds = WalkableCollisionBounds.fromPoints(loadedCollisionPoints)
+        rebuildStairRegions()
+
+        cameraPosition = savedStartPosition
+        cameraYaw = savedStartYaw
+        cameraPitch = savedStartPitch
+        persistentFloorY = savedStartPosition.y
+        applyStairOrGroundHeight()
+    }
+
+    private func rebuildStairRegions() {
+        stairRegions = loadedStairPolygons.compactMap { StairRegion.make(vertices: $0) }
+    }
+
+    private func currentNavigationData() -> SceneNavigationData {
+        var collision = loadedCollisionPoints
+        if isRecordingCollision {
+            collision += recordedCollisionPoints
+        }
+
+        var stairs = loadedStairPolygons
+        if isRecordingStairs, recordedStairPoints.count >= 3 {
+            stairs.append(recordedStairPoints)
+        }
+
+        return SceneNavigationData(
+            startPosition: savedStartPosition,
+            startYawRadians: savedStartYaw,
+            startPitchRadians: savedStartPitch,
+            collisionPoints: collision,
+            stairPolygons: stairs
+        )
     }
 
     func setPointClickMode(_ enabled: Bool) {
@@ -234,27 +309,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             lastRecordedCollisionPoint = nil
             recordCollisionSampleIfNeeded(force: true)
         } else if recordedCollisionPoints.count >= 3 {
-            loadedCollisionPoints = recordedCollisionPoints
-            walkableBounds = WalkableCollisionBounds.fromPoints(recordedCollisionPoints)
+            // Merge with any previously loaded floors so ground + upper stay available.
+            let merged = loadedCollisionPoints + recordedCollisionPoints
+            loadedCollisionPoints = merged
+            walkableBounds = WalkableCollisionBounds.fromPoints(merged)
         }
     }
 
     /// Combined nav.txt for packaging with a PLY inside a zip.
     func navigationExportText() -> String {
-        let collision = !recordedCollisionPoints.isEmpty ? recordedCollisionPoints : loadedCollisionPoints
-        let stairs: [SIMD3<Float>]
-        if recordedStairPoints.count >= 3 {
-            stairs = recordedStairPoints
-        } else {
-            stairs = loadedStairVertices
-        }
-        return SceneNavigationData(
-            startPosition: cameraPosition,
-            startYawRadians: cameraYaw,
-            startPitchRadians: cameraPitch,
-            collisionPoints: collision,
-            stairVertices: stairs
-        ).serialize()
+        currentNavigationData().serialize()
     }
 
     /// Plain-text export of recorded samples (one `x y z` per line).
@@ -337,11 +401,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private func commitStairRegionIfPossible() {
-        if let region = StairRegion.make(vertices: recordedStairPoints) {
-            stairRegion = region
-            loadedStairVertices = recordedStairPoints
-            applyStairOrGroundHeight()
-        }
+        guard recordedStairPoints.count >= 3,
+              StairRegion.make(vertices: recordedStairPoints) != nil else { return }
+        // Append on top of existing stair polygons (do not replace).
+        loadedStairPolygons.append(recordedStairPoints)
+        rebuildStairRegions()
+        recordedStairPoints.removeAll(keepingCapacity: true)
+        applyStairOrGroundHeight()
     }
 
     /// Pick the rendered surface under a click and search nearby source photos.
@@ -480,7 +546,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let length = simd_length(direction)
         if length > 0 {
             let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
-            // While recording collision/stairs, allow free XZ; otherwise stay in walkable region.
+            // While recording collision/stairs, allow free XZ.
+            // Otherwise clamp using only the collision layer for the current camera height.
             if isRecordingCollision || isRecordingStairs {
                 cameraPosition = proposed
             } else if let walkableBounds {
@@ -505,13 +572,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private func applyStairOrGroundHeight() {
-        if let stairRegion, let height = stairRegion.navigationHeight(at: cameraPosition) {
-            // On stairs: climb between normal ground and normal upper floor.
+        if let height = stairRegions.lazy.compactMap({ $0.navigationHeight(at: self.cameraPosition) }).first {
+            // On stairs: climb between that region's floors.
             persistentFloorY = height
             cameraPosition.y = height
-        } else if let stairRegion {
-            // Off stairs: stick to the nearer normal floor (ground or upper).
-            persistentFloorY = stairRegion.nearestFloorY(to: persistentFloorY)
+        } else if !stairRegions.isEmpty {
+            // Off stairs: stick to the nearer floor among all stair regions.
+            let floors = stairRegions.flatMap { [$0.lowerFloorY, $0.upperFloorY] }
+            if let nearest = floors.min(by: { abs($0 - persistentFloorY) < abs($1 - persistentFloorY) }) {
+                persistentFloorY = nearest
+            }
             cameraPosition.y = persistentFloorY
         } else {
             cameraPosition.y = persistentFloorY

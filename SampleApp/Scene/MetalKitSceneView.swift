@@ -30,7 +30,7 @@ struct MetalKitSceneView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
+            ZStack {
                 MetalKitSceneRepresentable(
                     modelIdentifier: modelIdentifier,
                     rendererBox: rendererBox,
@@ -46,37 +46,108 @@ struct MetalKitSceneView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                VStack(spacing: 12) {
-                    HStack(alignment: .top) {
-                        Button(pointClickMode ? "Point Click: On" : "Point Click") {
-                            let enabled = !pointClickMode
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button(pointClickMode ? "Point Click: On" : "Point Click") {
+                                let enabled = !pointClickMode
 #if os(macOS)
-                            rendererBox.cameraView?.setMouseLookActive(false)
+                                rendererBox.cameraView?.setMouseLookActive(false)
 #endif
-                            rendererBox.renderer?.setPointClickMode(enabled)
-                            pointClickMode = enabled
-                            pointClickStatus = rendererBox.renderer?.pointClickStatus ?? pointClickStatus
-                            if !enabled {
-                                showPhotoPanel = false
-                                searchedPhotos = []
-                                isPhotoSearching = false
+                                rendererBox.renderer?.setPointClickMode(enabled)
+                                pointClickMode = enabled
+                                pointClickStatus = rendererBox.renderer?.pointClickStatus ?? pointClickStatus
+                                if !enabled {
+                                    showPhotoPanel = false
+                                    searchedPhotos = []
+                                    isPhotoSearching = false
+                                }
                             }
+                            .buttonStyle(.borderedProminent)
+                            .tint(pointClickMode ? .orange : .accentColor)
+
+                            if pointClickMode || pointClickStatus != "Point Click off" {
+                                Text(pointClickStatus)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            Button(isRecordingCollision ? "Recording Collision…" : "Mark Collision") {
+                                let enabled = !isRecordingCollision
+                                if enabled { isRecordingStairs = false }
+                                rendererBox.renderer?.setCollisionRecording(enabled)
+                                isRecordingCollision = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isRecordingCollision ? .red : .accentColor)
+
+                            if isRecordingCollision {
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    let count = rendererBox.renderer?.recordedCollisionPoints.count ?? 0
+                                    Text("Walk · \(count) samples")
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
+                            Button(isRecordingStairs ? "Stair Mode: On" : "Mark Stairs") {
+                                let enabled = !isRecordingStairs
+                                if enabled { isRecordingCollision = false }
+#if os(macOS)
+                                if enabled {
+                                    rendererBox.cameraView?.setMouseLookActive(false)
+                                }
+#endif
+                                rendererBox.renderer?.setStairRecording(enabled)
+                                isRecordingStairs = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isRecordingStairs ? .purple : .accentColor)
+
+                            if isRecordingStairs {
+                                Button("Undo Stair Point") {
+                                    _ = rendererBox.renderer?.undoStairPoint()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled((rendererBox.renderer?.recordedStairPoints.isEmpty) ?? true)
+
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    let count = rendererBox.renderer?.recordedStairPoints.count ?? 0
+                                    Text(stairMarkHint(pointCount: count))
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
+                            Button("Mark Start Point") {
+                                rendererBox.renderer?.markStartPoint()
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Reset Collision") {
+                                isRecordingCollision = false
+                                rendererBox.renderer?.resetCollision()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Reset Stairs") {
+                                isRecordingStairs = false
+                                rendererBox.renderer?.resetStairs()
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(pointClickMode ? .orange : .accentColor)
 
-                        if pointClickMode || pointClickStatus != "Point Click off" {
-                            Text(pointClickStatus)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
-                        }
+                        Spacer(minLength: 0)
 
-                        Spacer()
-
-                        // Debug: live camera pose for setting a PLY spawn later.
                         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                             Text(cameraDebugText)
                                 .font(.system(.caption, design: .monospaced))
@@ -87,86 +158,39 @@ struct MetalKitSceneView: View {
                                 .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                    .padding(.horizontal)
 
-                    HStack(spacing: 8) {
-                        Button(isRecordingCollision ? "Recording Collision…" : "Generate Collision") {
-                            let enabled = !isRecordingCollision
-                            if enabled { isRecordingStairs = false }
-                            rendererBox.renderer?.setCollisionRecording(enabled)
-                            isRecordingCollision = enabled
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(isRecordingCollision ? .red : .accentColor)
+                    Spacer(minLength: 0)
 
-                        if isRecordingCollision {
-                            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
-                                let count = rendererBox.renderer?.recordedCollisionPoints.count ?? 0
-                                Text("Walk the area · \(count) samples · every \(String(format: "%.2f", Constants.collisionSampleSpacing))m")
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button("Save") {
+                                isRecordingCollision = false
+                                isRecordingStairs = false
+                                rendererBox.renderer?.saveNavigation()
                             }
-                        }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
 
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal)
-
-                    HStack(spacing: 8) {
-                        Button(isRecordingStairs ? "Stair Mode: On" : "Stair Mode") {
-                            let enabled = !isRecordingStairs
-                            if enabled { isRecordingCollision = false }
-#if os(macOS)
-                            if enabled {
-                                rendererBox.cameraView?.setMouseLookActive(false)
+                            Button("Download TXT") {
+                                downloadNavigationTXT()
                             }
-#endif
-                            rendererBox.renderer?.setStairRecording(enabled)
-                            isRecordingStairs = enabled
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(isRecordingStairs ? .purple : .accentColor)
-
-                        if isRecordingStairs {
-                            Button("Undo") {
-                                _ = rendererBox.renderer?.undoStairPoint()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled((rendererBox.renderer?.recordedStairPoints.isEmpty) ?? true)
-
-                            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
-                                let count = rendererBox.renderer?.recordedStairPoints.count ?? 0
-                                Text(stairMarkHint(pointCount: count))
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-                            }
+                            .buttonStyle(.borderedProminent)
                         }
 
                         Spacer(minLength: 0)
 
-                        Button("Download TXT") {
-                            downloadNavigationTXT()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .padding(.horizontal)
-
 #if os(macOS)
-                    Text(helpCaption)
-                        .font(.caption)
-                        .padding(8)
-                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                        Text(helpCaption)
+                            .font(.caption)
+                            .padding(8)
+                            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 #elseif os(iOS)
-                    MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs)
+                        MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs)
 #endif
+                    }
                 }
                 .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
             if showPhotoPanel && pointClickMode {
@@ -200,9 +224,12 @@ struct MetalKitSceneView: View {
             return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
         }
         if isRecordingStairs {
-            return "Stair Mode · click a surface corner to mark · right-click looks · Q/E moves camera · need ≥3 corners"
+            return "Mark Stairs · click corners · Q/E moves camera · need ≥3 · toggle off to append · Save to apply"
         }
-        return "Click to look · mouse looks around · WASD/arrows move · Esc releases cursor · Download TXT for zip packaging"
+        if isRecordingCollision {
+            return "Mark Collision · walk the area · toggle off to append on top · Save to apply"
+        }
+        return "Mark Start / Collision / Stairs on the left · Save applies live · Download TXT exports nav.txt"
     }
 
     private func stairMarkHint(pointCount: Int) -> String {
@@ -210,11 +237,11 @@ struct MetalKitSceneView: View {
         case 0:
             return "Click corners on the stair surface"
         case 1:
-            return "1 corner · need 2 more for a triangle"
+            return "1 corner · need 2 more"
         case 2:
-            return "2 corners · click 1 more to close a triangle"
+            return "2 corners · click 1 more"
         default:
-            return "\(pointCount) corners · toggle Stair Mode off to apply · Download TXT when ready"
+            return "\(pointCount) corners · toggle off to append · Save to apply"
         }
     }
 
