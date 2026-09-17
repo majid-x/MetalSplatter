@@ -56,11 +56,26 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// True while a photo API request is in flight.
     var isPhotoSearching = false
 
-    /// When true, walk positions are sampled into `recordedCollisionPoints`.
+    /// When true, click-to-place collision wall panels.
+    var isPlacingCollisionBlocks = false
+    /// When true, click selects a wall; drag resizes width/height.
+    var isSelectingCollisionBlocks = false
+    /// When true, walk positions are sampled into a walkable outline.
     var isRecordingCollision = false
-    /// World-space camera positions visited while recording (for walkable bounds).
+    /// Solid wall panels (visible + obstacle collision).
+    private(set) var collisionBlocks: [CollisionBlock] = []
+    private(set) var selectedCollisionBlockIndex: Int? = nil
+    /// Ghost brick under the cursor while placing (optional).
+    private var collisionBlockPreview: CollisionBlock? = nil
+    private var lastCollisionPreviewUpdate: Date? = nil
+    /// World-space camera positions visited while recording walk collision.
     private(set) var recordedCollisionPoints: [SIMD3<Float>] = []
     private var lastRecordedCollisionPoint: SIMD3<Float>?
+
+    /// True while any collision authoring mode is active (blocks stay visible).
+    var isCollisionEditingActive: Bool {
+        isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingCollision
+    }
 
     /// When true, stair polygon vertices are placed manually (Mark Point).
     var isRecordingStairs = false
@@ -77,15 +92,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var depthReadbackBuffer: MTLBuffer?
     private var photoSearchTask: Task<Void, Never>?
     private let photoSearchClient = PhotoSearchClient()
-    /// Walkable region from scene package or a finished collision recording.
+    /// Walkable region from scene package (legacy walked outline).
     private var walkableBounds: WalkableCollisionBounds? = nil
-    /// Collision / stair source kept for Save / Download TXT.
+    /// Legacy walked samples kept for re-export of older packages.
     private var loadedCollisionPoints: [SIMD3<Float>] = []
     private var loadedStairPolygons: [[SIMD3<Float>]] = []
     /// Explicit start pose for Save / Download (Mark Start overwrites this).
     private var savedStartPosition = SIMD3<Float>(0, 0, Constants.cameraStartZ)
     private var savedStartYaw: Float = 0
     private var savedStartPitch: Float = 0
+    private var collisionBlockRenderer: CollisionBlockRenderer?
     var drawableSize: CGSize = .zero
 
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
@@ -101,6 +117,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         metalKitView.sampleCount = 1
         metalKitView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         depthReadbackBuffer = device.makeBuffer(length: MemoryLayout<Float>.size, options: .storageModeShared)
+        collisionBlockRenderer = CollisionBlockRenderer(
+            device: device,
+            colorFormat: metalKitView.colorPixelFormat,
+            depthFormat: metalKitView.depthStencilPixelFormat,
+            sampleCount: metalKitView.sampleCount
+        )
     }
 
     func load(_ model: ModelIdentifier?) async throws {
@@ -117,9 +139,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         stairRegions = []
         loadedCollisionPoints = []
         loadedStairPolygons = []
+        collisionBlocks = []
+        collisionBlockPreview = nil
+        lastCollisionCursorPoint = nil
+        selectedCollisionBlockIndex = nil
+        isPlacingCollisionBlocks = false
+        isSelectingCollisionBlocks = false
+        isRecordingCollision = false
         recordedCollisionPoints = []
-        recordedStairPoints = []
         lastRecordedCollisionPoint = nil
+        recordedStairPoints = []
         savedStartPosition = cameraPosition
         savedStartYaw = 0
         savedStartPitch = 0
@@ -187,6 +216,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         loadedCollisionPoints = data.collisionPoints
         let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
         walkableBounds = WalkableCollisionBounds.fromClusters(clusters)
+        collisionBlocks = data.collisionBlocks
+        collisionBlockPreview = nil
+        selectedCollisionBlockIndex = nil
 
         loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
         rebuildStairRegions()
@@ -194,13 +226,18 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         applyStairOrGroundHeight()
     }
 
-    /// Clear all collision layers and stop applying walkable clamp.
+    /// Clear all collision (walk outline + wall panels).
     func resetCollision() {
+        setCollisionBlockPlacement(false)
+        setCollisionBlockSelecting(false)
         setCollisionRecording(false)
-        recordedCollisionPoints.removeAll(keepingCapacity: true)
-        lastRecordedCollisionPoint = nil
         loadedCollisionPoints = []
+        recordedCollisionPoints = []
+        lastRecordedCollisionPoint = nil
         walkableBounds = nil
+        collisionBlocks = []
+        collisionBlockPreview = nil
+        selectedCollisionBlockIndex = nil
     }
 
     /// Clear all stair polygons and stop stair height following.
@@ -221,6 +258,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// Commit any in-progress recording and apply collision / stairs / start live.
     func saveNavigation() {
+        if isPlacingCollisionBlocks {
+            setCollisionBlockPlacement(false)
+        }
+        if isSelectingCollisionBlocks {
+            setCollisionBlockSelecting(false)
+        }
         if isRecordingCollision {
             setCollisionRecording(false)
         }
@@ -236,6 +279,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPitch = savedStartPitch
         persistentFloorY = savedStartPosition.y
         applyStairOrGroundHeight()
+        cameraPosition = CollisionBlock.resolve(cameraPosition, against: collisionBlocks)
     }
 
     private func rebuildStairRegions() {
@@ -258,13 +302,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             startYawRadians: savedStartYaw,
             startPitchRadians: savedStartPitch,
             collisionPoints: collision,
+            collisionBlocks: collisionBlocks,
             stairPolygons: stairs
         )
     }
 
     func setPointClickMode(_ enabled: Bool) {
-        pointClickMode = enabled
         if enabled {
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setStairRecording(false)
             lastPickedCoordinate = nil
             searchedPhotos = []
             isPhotoSearching = false
@@ -275,6 +323,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             photoSearchTask = nil
             isPhotoSearching = false
         }
+        pointClickMode = enabled
         onPointClickStateChanged?()
     }
 
@@ -298,10 +347,42 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         onPointClickStateChanged?()
     }
 
+    /// Start or stop click-to-place collision wall panels.
+    func setCollisionBlockPlacement(_ enabled: Bool) {
+        if enabled {
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setStairRecording(false)
+            setPointClickMode(false)
+        }
+        isPlacingCollisionBlocks = enabled
+        if !enabled {
+            collisionBlockPreview = nil
+        }
+    }
+
+    /// Start or stop selecting / resizing placed wall panels (hides place ghost).
+    func setCollisionBlockSelecting(_ enabled: Bool) {
+        if enabled {
+            setCollisionBlockPlacement(false)
+            setCollisionRecording(false)
+            setStairRecording(false)
+            setPointClickMode(false)
+            collisionBlockPreview = nil
+        } else {
+            selectedCollisionBlockIndex = nil
+        }
+        isSelectingCollisionBlocks = enabled
+    }
+
     /// Start or stop sampling the camera path for a walkable collision region.
     func setCollisionRecording(_ enabled: Bool) {
         if enabled {
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
             setStairRecording(false)
+            setPointClickMode(false)
+            collisionBlockPreview = nil
         }
         isRecordingCollision = enabled
         if enabled {
@@ -309,11 +390,172 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             lastRecordedCollisionPoint = nil
             recordCollisionSampleIfNeeded(force: true)
         } else if recordedCollisionPoints.count >= 3 {
-            // Merge with any previously loaded floors so ground + upper stay available.
             let merged = loadedCollisionPoints + recordedCollisionPoints
             loadedCollisionPoints = merged
             walkableBounds = WalkableCollisionBounds.fromPoints(merged)
+            recordedCollisionPoints.removeAll(keepingCapacity: true)
+            lastRecordedCollisionPoint = nil
         }
+    }
+
+    /// Place a wall panel at the 3D point under the cursor.
+    @discardableResult
+    func placeCollisionBlock(at viewPoint: CGPoint) -> Bool {
+        guard isPlacingCollisionBlocks else { return false }
+        guard let world = cursorNavigationPoint(at: viewPoint) else { return false }
+        let block = CollisionBlock.placement(
+            at: world,
+            yawRadians: cameraYaw,
+            existing: collisionBlocks
+        )
+        if collisionBlocks.contains(where: { $0.isSameCell(as: block) }) { return false }
+        collisionBlocks.append(block)
+        collisionBlockPreview = block
+        return true
+    }
+
+    /// Select the wall under the cursor via a view ray (overlays don't write depth).
+    @discardableResult
+    func selectCollisionBlock(at viewPoint: CGPoint) -> Bool {
+        guard isSelectingCollisionBlocks else { return false }
+        guard let (origin, direction) = navigationRay(at: viewPoint) else {
+            selectedCollisionBlockIndex = nil
+            return false
+        }
+        selectedCollisionBlockIndex = CollisionBlock.hitTestRay(
+            origin: origin,
+            direction: direction,
+            in: collisionBlocks
+        )
+        return selectedCollisionBlockIndex != nil
+    }
+
+    /// Drag-resize the selected wall: horizontal → width, vertical → height.
+    func resizeSelectedCollisionBlock(deltaX: CGFloat, deltaY: CGFloat) {
+        guard isSelectingCollisionBlocks,
+              let index = selectedCollisionBlockIndex,
+              collisionBlocks.indices.contains(index) else { return }
+        let sensitivity = Constants.collisionBlockResizeSensitivity
+        var block = collisionBlocks[index]
+        block.width = min(
+            Constants.collisionBlockMaxWidth,
+            max(Constants.collisionBlockMinWidth, block.width + Float(deltaX) * sensitivity)
+        )
+        block.height = min(
+            Constants.collisionBlockMaxHeight,
+            max(Constants.collisionBlockMinHeight, block.height - Float(deltaY) * sensitivity)
+        )
+        collisionBlocks[index] = block
+    }
+
+    /// Delete the currently selected wall.
+    @discardableResult
+    func deleteSelectedCollisionBlock() -> Bool {
+        guard let index = selectedCollisionBlockIndex,
+              collisionBlocks.indices.contains(index) else { return false }
+        collisionBlocks.remove(at: index)
+        selectedCollisionBlockIndex = nil
+        return true
+    }
+
+    /// Remove the last placed collision wall.
+    @discardableResult
+    func undoCollisionBlock() -> Bool {
+        guard !collisionBlocks.isEmpty else { return false }
+        collisionBlocks.removeLast()
+        if let selected = selectedCollisionBlockIndex {
+            if selected >= collisionBlocks.count {
+                selectedCollisionBlockIndex = nil
+            }
+        }
+        return true
+    }
+
+    /// Update the translucent ghost wall under the cursor (place mode only).
+    func updateCollisionBlockPreview(at viewPoint: CGPoint) {
+        guard isPlacingCollisionBlocks else {
+            collisionBlockPreview = nil
+            return
+        }
+        let now = Date()
+        if let lastCollisionPreviewUpdate,
+           now.timeIntervalSince(lastCollisionPreviewUpdate) < 0.05 {
+            return
+        }
+        lastCollisionPreviewUpdate = now
+        guard let world = cursorNavigationPoint(at: viewPoint) else { return }
+        collisionBlockPreview = CollisionBlock.placement(
+            at: world,
+            yawRadians: cameraYaw,
+            existing: collisionBlocks
+        )
+    }
+
+    /// 3D cursor in navigation space: prefer depth pick, else a ray fallthrough so placement stays free.
+    private func cursorNavigationPoint(at viewPoint: CGPoint) -> SIMD3<Float>? {
+        if let modelPoint = worldPosition(at: viewPoint) {
+            let world = SplatNavigationSpace.fromModel(modelPoint)
+            lastCollisionCursorPoint = world
+            return world
+        }
+        if let rayPoint = navigationPointOnViewRay(at: viewPoint, distance: lastCollisionCursorDistance) {
+            lastCollisionCursorPoint = rayPoint
+            return rayPoint
+        }
+        return lastCollisionCursorPoint
+    }
+
+    private var lastCollisionCursorPoint: SIMD3<Float>?
+    private var lastCollisionCursorDistance: Float {
+        guard let last = lastCollisionCursorPoint else { return 3.0 }
+        return max(0.5, simd_length(last - cameraPosition))
+    }
+
+    /// Unproject a view pixel onto a point `distance` meters along the camera ray (nav space).
+    private func navigationPointOnViewRay(at viewPoint: CGPoint, distance: Float) -> SIMD3<Float>? {
+        guard let (origin, direction) = navigationRay(at: viewPoint) else { return nil }
+        return origin + direction * distance
+    }
+
+    /// Camera ray through a view point, in navigation space.
+    private func navigationRay(at viewPoint: CGPoint) -> (origin: SIMD3<Float>, direction: SIMD3<Float>)? {
+        guard drawableSize.width > 0, drawableSize.height > 0 else { return nil }
+        guard metalKitView.bounds.width > 0, metalKitView.bounds.height > 0 else { return nil }
+
+        let scaleX = drawableSize.width / metalKitView.bounds.width
+        let scaleY = drawableSize.height / metalKitView.bounds.height
+#if os(macOS)
+        let pixelX = Float(viewPoint.x * scaleX)
+        let pixelY = Float((metalKitView.bounds.height - viewPoint.y) * scaleY)
+#else
+        let pixelX = Float(viewPoint.x * scaleX)
+        let pixelY = Float(viewPoint.y * scaleY)
+#endif
+
+        let ndcX = (2.0 * pixelX) / Float(drawableSize.width) - 1.0
+        let ndcY = 1.0 - (2.0 * pixelY) / Float(drawableSize.height)
+
+        let forward = cameraForward
+        let right = cameraRight
+        let up = cameraUp
+        let eye = cameraPosition
+        let navView = matrix_float4x4(columns: (
+            SIMD4(right.x, up.x, -forward.x, 0),
+            SIMD4(right.y, up.y, -forward.y, 0),
+            SIMD4(right.z, up.z, -forward.z, 0),
+            SIMD4(-simd_dot(right, eye), -simd_dot(up, eye), simd_dot(forward, eye), 1)
+        ))
+
+        let clipNear = SIMD4<Float>(ndcX, ndcY, 1, 1)
+        let inv = (projectionMatrix * navView).inverse
+        let nearH = inv * clipNear
+        guard abs(nearH.w) > 1e-6 else { return nil }
+        let nearPoint = nearH.xyz / nearH.w
+        var dir = nearPoint - eye
+        let dirLen = simd_length(dir)
+        guard dirLen > 1e-6 else { return (eye, forward) }
+        dir /= dirLen
+        return (eye, dir)
     }
 
     /// Combined nav.txt for packaging with a PLY inside a zip.
@@ -323,14 +565,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// Plain-text export of recorded samples (one `x y z` per line).
     func collisionPathExportText() -> String? {
-        guard !recordedCollisionPoints.isEmpty else { return nil }
+        let points = !recordedCollisionPoints.isEmpty ? recordedCollisionPoints : loadedCollisionPoints
+        guard !points.isEmpty else { return nil }
         var lines: [String] = [
             "# MetalSplatter collision path",
             "# World-space camera XYZ samples (same frame as cam debug overlay)",
             "# One sample per line: x y z",
             "# min_spacing \(Constants.collisionSampleSpacing)",
         ]
-        for p in recordedCollisionPoints {
+        for p in points {
             lines.append(String(format: "%.6f %.6f %.6f", p.x, p.y, p.z))
         }
         return lines.joined(separator: "\n") + "\n"
@@ -351,6 +594,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Start or stop stair polygon marking (click surface corners; Q/E moves the camera).
     func setStairRecording(_ enabled: Bool) {
         if enabled {
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
             setCollisionRecording(false)
         }
         isRecordingStairs = enabled
@@ -546,14 +791,25 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let length = simd_length(direction)
         if length > 0 {
             let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
-            // While recording collision/stairs, allow free XZ.
-            // Otherwise clamp using only the collision layer for the current camera height.
-            if isRecordingCollision || isRecordingStairs {
+            if isRecordingStairs {
+                // Free XZ while marking stairs.
                 cameraPosition = proposed
-            } else if let walkableBounds {
-                cameraPosition = walkableBounds.clamp(proposed)
             } else {
-                cameraPosition = proposed
+                var clamped = proposed
+                // Walkable outline only when not actively recording a new walk path.
+                if !isRecordingCollision, let walkableBounds {
+                    clamped = walkableBounds.clamp(clamped)
+                }
+                // Solid wall panels: slide along faces — never teleport through.
+                if isPlacingCollisionBlocks || isSelectingCollisionBlocks {
+                    cameraPosition = clamped
+                } else {
+                    cameraPosition = CollisionBlock.move(
+                        from: cameraPosition,
+                        to: clamped,
+                        against: collisionBlocks
+                    )
+                }
             }
         }
 
@@ -568,6 +824,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             recordCollisionSampleIfNeeded()
         } else {
             applyStairOrGroundHeight()
+            // Block collision is XZ-only; never let it change standing height.
+            cameraPosition.y = persistentFloorY
         }
     }
 
@@ -680,6 +938,18 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
 
         if didRender {
+            if isCollisionEditingActive {
+                let colorTexture = view.multisampleColorTexture ?? drawable.texture
+                collisionBlockRenderer?.draw(
+                    blocks: collisionBlocks,
+                    preview: isPlacingCollisionBlocks ? collisionBlockPreview : nil,
+                    selectedIndex: isSelectingCollisionBlocks ? selectedCollisionBlockIndex : nil,
+                    viewProjection: lastProjectionMatrix * lastViewMatrix,
+                    colorTexture: colorTexture,
+                    depthTexture: view.depthStencilTexture,
+                    to: commandBuffer
+                )
+            }
             commandBuffer.present(drawable)
         }
 

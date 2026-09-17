@@ -21,12 +21,18 @@ struct MetalKitSceneView: View {
     @State private var searchedPhotos: [PhotoSearchResult] = []
     @State private var isPhotoSearching = false
     @State private var showPhotoPanel = false
+    @State private var isPlacingCollisionBlocks = false
+    @State private var isSelectingCollisionBlocks = false
     @State private var isRecordingCollision = false
 #if os(iOS)
     @State private var exportDocument = CollisionPathDocument(text: "")
     @State private var isExportingNavigation = false
 #endif
     @State private var isRecordingStairs = false
+
+    private var isCollisionModeActive: Bool {
+        isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingCollision
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -54,6 +60,12 @@ struct MetalKitSceneView: View {
 #if os(macOS)
                                 rendererBox.cameraView?.setMouseLookActive(false)
 #endif
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                }
                                 rendererBox.renderer?.setPointClickMode(enabled)
                                 pointClickMode = enabled
                                 pointClickStatus = rendererBox.renderer?.pointClickStatus ?? pointClickStatus
@@ -75,19 +87,126 @@ struct MetalKitSceneView: View {
                                     .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
                             }
 
-                            Button(isRecordingCollision ? "Recording Collision…" : "Mark Collision") {
+                            Button(isPlacingCollisionBlocks ? "Adding Block…" : "Add Block Collision") {
+                                let enabled = !isPlacingCollisionBlocks
+                                if enabled {
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                }
+#if os(macOS)
+                                if enabled {
+                                    rendererBox.cameraView?.setMouseLookActive(false)
+                                }
+#endif
+                                rendererBox.renderer?.setCollisionBlockPlacement(enabled)
+                                isPlacingCollisionBlocks = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isPlacingCollisionBlocks ? .red : .accentColor)
+
+                            Button(isRecordingCollision ? "Recording Walk…" : "Walking Collision") {
                                 let enabled = !isRecordingCollision
-                                if enabled { isRecordingStairs = false }
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingStairs = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                }
                                 rendererBox.renderer?.setCollisionRecording(enabled)
                                 isRecordingCollision = enabled
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(isRecordingCollision ? .red : .accentColor)
 
+                            Button(isSelectingCollisionBlocks ? "Select: On" : "Select") {
+                                let enabled = !isSelectingCollisionBlocks
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+#if os(macOS)
+                                    rendererBox.cameraView?.setMouseLookActive(false)
+#endif
+                                }
+                                rendererBox.renderer?.setCollisionBlockSelecting(enabled)
+                                isSelectingCollisionBlocks = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isSelectingCollisionBlocks ? .orange : .accentColor)
+
                             if isRecordingCollision {
                                 TimelineView(.periodic(from: .now, by: 0.2)) { _ in
                                     let count = rendererBox.renderer?.recordedCollisionPoints.count ?? 0
-                                    Text("Walk · \(count) samples")
+                                    Text("Walk · \(count) samples · adds on top")
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
+                            if isPlacingCollisionBlocks {
+                                Button("Undo Block") {
+                                    _ = rendererBox.renderer?.undoCollisionBlock()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled((rendererBox.renderer?.collisionBlocks.isEmpty) ?? true)
+
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    let count = rendererBox.renderer?.collisionBlocks.count ?? 0
+                                    Text("\(count) walls · click to place · snaps to neighbors")
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
+                            if isSelectingCollisionBlocks {
+                                Button("Delete") {
+                                    _ = rendererBox.renderer?.deleteSelectedCollisionBlock()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(rendererBox.renderer?.selectedCollisionBlockIndex == nil)
+
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    if let index = rendererBox.renderer?.selectedCollisionBlockIndex,
+                                       let blocks = rendererBox.renderer?.collisionBlocks,
+                                       blocks.indices.contains(index) {
+                                        let block = blocks[index]
+                                        Text(
+                                            String(
+                                                format: "Selected · W %.2fm  H %.2fm · drag to resize",
+                                                block.width,
+                                                block.height
+                                            )
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                    } else {
+                                        Text("Click a wall to select · drag resizes · Delete removes")
+                                            .font(.caption)
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 6)
+                                            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                    }
+                                }
+                            } else if isRecordingCollision {
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    let count = rendererBox.renderer?.collisionBlocks.count ?? 0
+                                    Text("\(count) walls visible · walk adds outline collision")
                                         .font(.caption)
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 8)
@@ -98,7 +217,11 @@ struct MetalKitSceneView: View {
 
                             Button(isRecordingStairs ? "Stair Mode: On" : "Mark Stairs") {
                                 let enabled = !isRecordingStairs
-                                if enabled { isRecordingCollision = false }
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                }
 #if os(macOS)
                                 if enabled {
                                     rendererBox.cameraView?.setMouseLookActive(false)
@@ -134,16 +257,18 @@ struct MetalKitSceneView: View {
                             .buttonStyle(.borderedProminent)
 
                             Button("Reset Collision") {
+                                isPlacingCollisionBlocks = false
+                                isSelectingCollisionBlocks = false
                                 isRecordingCollision = false
                                 rendererBox.renderer?.resetCollision()
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
 
                             Button("Reset Stairs") {
                                 isRecordingStairs = false
                                 rendererBox.renderer?.resetStairs()
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
                         }
 
                         Spacer(minLength: 0)
@@ -164,6 +289,8 @@ struct MetalKitSceneView: View {
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 8) {
                             Button("Save") {
+                                isPlacingCollisionBlocks = false
+                                isSelectingCollisionBlocks = false
                                 isRecordingCollision = false
                                 isRecordingStairs = false
                                 rendererBox.renderer?.saveNavigation()
@@ -226,10 +353,16 @@ struct MetalKitSceneView: View {
         if isRecordingStairs {
             return "Mark Stairs · click corners · Q/E moves camera · need ≥3 · toggle off to append · Save to apply"
         }
-        if isRecordingCollision {
-            return "Mark Collision · walk the area · toggle off to append on top · Save to apply"
+        if isSelectingCollisionBlocks {
+            return "Select · click a wall · drag to resize width/height · Delete removes it · right-click looks"
         }
-        return "Mark Start / Collision / Stairs on the left · Save applies live · Download TXT exports nav.txt"
+        if isPlacingCollisionBlocks {
+            return "Add Block Collision · left-click places a thin wall · free float · neighbors snap · Save"
+        }
+        if isRecordingCollision {
+            return "Walking Collision · walk the area · toggle off to append outline · walls stay visible · Save"
+        }
+        return "Add Block / Walking Collision coexist · Save applies live · Download TXT exports nav.txt"
     }
 
     private func stairMarkHint(pointCount: Int) -> String {
@@ -498,28 +631,61 @@ final class CameraControlMTKView: MTKView {
             return
         }
 
+        if renderer?.isSelectingCollisionBlocks == true {
+            setMouseLookActive(false)
+            _ = renderer?.selectCollisionBlock(at: locationInView)
+            return
+        }
+
+        if renderer?.isPlacingCollisionBlocks == true {
+            setMouseLookActive(false)
+            _ = renderer?.placeCollisionBlock(at: locationInView)
+            return
+        }
+
         setMouseLookActive(true)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        // In stair mode, right-click toggles look so left-click can mark surfaces.
-        if renderer?.isRecordingStairs == true || renderer?.pointClickMode == true {
+        // In place/select/stair mode, right-click toggles look so left-click can mark surfaces.
+        if renderer?.isRecordingStairs == true
+            || renderer?.isPlacingCollisionBlocks == true
+            || renderer?.isSelectingCollisionBlocks == true
+            || renderer?.pointClickMode == true {
             setMouseLookActive(!isMouseLookActive)
             return
         }
         setMouseLookActive(true)
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) {
+        if renderer?.isSelectingCollisionBlocks == true, !isMouseLookActive {
+            renderer?.resizeSelectedCollisionBlock(deltaX: event.deltaX, deltaY: event.deltaY)
+            return
+        }
         guard isMouseLookActive, renderer?.pointClickMode != true else { return }
-        // Allow look while stair marking if right-click enabled it.
+        renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if renderer?.isPlacingCollisionBlocks == true, !isMouseLookActive {
+            let locationInView = convert(event.locationInWindow, from: nil)
+            renderer?.updateCollisionBlockPreview(at: locationInView)
+        }
+        guard isMouseLookActive, renderer?.pointClickMode != true else { return }
         renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
     }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.escape {
             setMouseLookActive(false)
+            return
+        }
+        // Forward Delete / Backspace removes the selected wall.
+        if renderer?.isSelectingCollisionBlocks == true,
+           event.keyCode == 51 || event.keyCode == 117 {
+            _ = renderer?.deleteSelectedCollisionBlock()
             return
         }
         pressedKeys.insert(event.keyCode)
@@ -581,7 +747,23 @@ final class CameraControlMTKView: MTKView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard renderer?.pointClickMode != true,
-              renderer?.isRecordingStairs != true else { return }
+              renderer?.isRecordingStairs != true,
+              renderer?.isPlacingCollisionBlocks != true,
+              renderer?.isSelectingCollisionBlocks != true else {
+            // In select mode, drag resizes the selected wall.
+            if renderer?.isSelectingCollisionBlocks == true,
+               let touch = touches.first {
+                let location = touch.location(in: self)
+                let previous = touch.previousLocation(in: self)
+                let dx = location.x - previous.x
+                let dy = location.y - previous.y
+                if hypot(dx, dy) > 0.5 {
+                    didDragLook = true
+                    renderer?.resizeSelectedCollisionBlock(deltaX: dx, deltaY: dy)
+                }
+            }
+            return
+        }
         guard let touch = touches.first, let start = touchStartLocation else { return }
         let location = touch.location(in: self)
         let delta = CGPoint(x: location.x - start.x, y: location.y - start.y)
@@ -609,6 +791,16 @@ final class CameraControlMTKView: MTKView {
 
         if renderer?.isRecordingStairs == true {
             _ = renderer?.markStairPoint(at: location)
+            return
+        }
+
+        if renderer?.isSelectingCollisionBlocks == true {
+            _ = renderer?.selectCollisionBlock(at: location)
+            return
+        }
+
+        if renderer?.isPlacingCollisionBlocks == true {
+            _ = renderer?.placeCollisionBlock(at: location)
             return
         }
 

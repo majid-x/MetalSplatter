@@ -15,6 +15,22 @@ enum Constants {
     static let cameraPitchLimit: Float = .pi / 2 - 0.01
     /// Min distance between recorded walk samples while generating collision.
     static let collisionSampleSpacing: Float = 0.05
+    /// Default wall face length (local X), in meters.
+    static let collisionBlockWidth: Float = 1.6
+    /// Default wall thickness (local Z) — thin like a normal wall.
+    static let collisionBlockDepth: Float = 0.12
+    /// Default wall height ≈ standing character / eye height.
+    static let collisionBlockHeight: Float = 1.7
+    static let collisionBlockMinWidth: Float = 0.4
+    static let collisionBlockMaxWidth: Float = 8.0
+    static let collisionBlockMinHeight: Float = 0.4
+    static let collisionBlockMaxHeight: Float = 4.0
+    /// How close a click must be to an existing wall face to snap / auto-connect.
+    static let collisionBlockSnapDistance: Float = 0.45
+    /// Camera collision radius against solid blocks.
+    static let collisionBlockPlayerRadius: Float = 0.22
+    /// Mouse pixels → meters while resizing a selected wall.
+    static let collisionBlockResizeSensitivity: Float = 0.012
     /// Vertical climb/descend speed (Q/E) while marking stair vertices.
     static let stairRecordClimbSpeed: Float = 1.5
     /// How far outside the stair polygon still counts as on-stairs.

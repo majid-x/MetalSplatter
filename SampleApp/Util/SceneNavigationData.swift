@@ -35,6 +35,8 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     var startPitchRadians: Float
     /// Collision layers by floor height. Empty = no walkable clamp.
     var collisionLayers: [CollisionLayerData]
+    /// Solid wall bricks (Lego-style). Empty = none.
+    var collisionBlocks: [CollisionBlock]
     /// One or more stair polygons (each needs ≥ 3 vertices).
     var stairPolygons: [[SIMD3<Float>]]
 
@@ -53,6 +55,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         startYawRadians: 0,
         startPitchRadians: 0,
         collisionLayers: [],
+        collisionBlocks: [],
         stairPolygons: []
     )
 
@@ -73,12 +76,14 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         startYawRadians: Float,
         startPitchRadians: Float,
         collisionLayers: [CollisionLayerData],
+        collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
     ) {
         self.startPosition = startPosition
         self.startYawRadians = startYawRadians
         self.startPitchRadians = startPitchRadians
         self.collisionLayers = collisionLayers
+        self.collisionBlocks = collisionBlocks
         self.stairPolygons = stairPolygons
     }
 
@@ -88,6 +93,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         startYawRadians: Float,
         startPitchRadians: Float,
         collisionPoints: [SIMD3<Float>],
+        collisionBlocks: [CollisionBlock] = [],
         stairVertices: [SIMD3<Float>]
     ) {
         let clusters = WalkableCollisionBounds.clusterByHeight(
@@ -99,6 +105,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             startYawRadians: startYawRadians,
             startPitchRadians: startPitchRadians,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
+            collisionBlocks: collisionBlocks,
             stairPolygons: stairVertices.count >= 3 ? [stairVertices] : []
         )
     }
@@ -108,6 +115,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         startYawRadians: Float,
         startPitchRadians: Float,
         collisionPoints: [SIMD3<Float>],
+        collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
     ) {
         let clusters = WalkableCollisionBounds.clusterByHeight(
@@ -119,13 +127,14 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             startYawRadians: startYawRadians,
             startPitchRadians: startPitchRadians,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
+            collisionBlocks: collisionBlocks,
             stairPolygons: stairPolygons.filter { $0.count >= 3 }
         )
     }
 
     static func parse(_ text: String) throws -> SceneNavigationData {
         enum Section {
-            case none, start, collision, stairs
+            case none, start, collision, stairs, blocks
         }
 
         var section: Section = .none
@@ -135,6 +144,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         var layers: [CollisionLayerData] = []
         var currentLayerFloor: Float?
         var currentLayerPoints: [SIMD3<Float>] = []
+        var blocks: [CollisionBlock] = []
 
 
         func flushStairPolygon() {
@@ -186,6 +196,12 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
                 section = .stairs
                 continue
             }
+            if lowered == "[blocks]" || lowered == "[block]" {
+                flushCollisionLayer()
+                flushStairPolygon()
+                section = .blocks
+                continue
+            }
 
             let parts = line.split(whereSeparator: \.isWhitespace).compactMap { Float($0) }
             switch section {
@@ -200,6 +216,24 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             case .stairs:
                 guard parts.count >= 3 else { continue }
                 currentStairPoints.append(SIMD3(parts[0], parts[1], parts[2]))
+            case .blocks:
+                // centerX centerZ baseY [width depth height yaw_degrees]
+                guard parts.count >= 3 else { continue }
+                let width = parts.count > 3 ? parts[3] : CollisionBlock.defaultWidth
+                let depth = parts.count > 4 ? parts[4] : CollisionBlock.defaultDepth
+                let height = parts.count > 5 ? parts[5] : CollisionBlock.defaultHeight
+                let yawDeg = parts.count > 6 ? parts[6] : 0
+                blocks.append(
+                    CollisionBlock(
+                        centerX: parts[0],
+                        centerZ: parts[1],
+                        baseY: parts[2],
+                        width: width,
+                        depth: depth,
+                        height: height,
+                        yawRadians: yawDeg * .pi / 180
+                    )
+                )
             }
         }
         flushCollisionLayer()
@@ -227,6 +261,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             startYawRadians: yawDeg * .pi / 180,
             startPitchRadians: pitchDeg * .pi / 180,
             collisionLayers: layers,
+            collisionBlocks: blocks,
             stairPolygons: stairPolygons
         )
     }
@@ -263,6 +298,37 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
                 for p in layer.points {
                     lines.append(String(format: "%.6f %.6f %.6f", p.x, p.y, p.z))
                 }
+            }
+        }
+
+        lines += [
+            "",
+            "[blocks]",
+            "# Solid wall panels. One per line:",
+            "# centerX centerZ baseY width depth height yaw_degrees",
+            String(
+                format: "# defaults width=%.3f depth=%.3f height=%.3f",
+                Constants.collisionBlockWidth,
+                Constants.collisionBlockDepth,
+                Constants.collisionBlockHeight
+            ),
+        ]
+        if collisionBlocks.isEmpty {
+            lines.append("# (none)")
+        } else {
+            for block in collisionBlocks {
+                lines.append(
+                    String(
+                        format: "%.6f %.6f %.6f %.6f %.6f %.6f %.6f",
+                        block.centerX,
+                        block.centerZ,
+                        block.baseY,
+                        block.width,
+                        block.depth,
+                        block.height,
+                        block.yawRadians * 180 / .pi
+                    )
+                )
             }
         }
 
@@ -304,7 +370,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     // MARK: Codable
 
     private enum CodingKeys: String, CodingKey {
-        case startPosition, startYawRadians, startPitchRadians, collisionLayers, stairPolygons
+        case startPosition, startYawRadians, startPitchRadians, collisionLayers, collisionBlocks, stairPolygons
         case collisionPoints, stairVertices // legacy
     }
 
@@ -328,6 +394,8 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             collisionLayers = []
         }
 
+        collisionBlocks = try c.decodeIfPresent([CollisionBlock].self, forKey: .collisionBlocks) ?? []
+
         if let polys = try c.decodeIfPresent([[[Float]]].self, forKey: .stairPolygons) {
             stairPolygons = polys.map { $0.map { SIMD3($0[0], $0[1], $0[2]) } }.filter { $0.count >= 3 }
         } else if let flat = try c.decodeIfPresent([[Float]].self, forKey: .stairVertices) {
@@ -344,6 +412,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         try c.encode(startYawRadians, forKey: .startYawRadians)
         try c.encode(startPitchRadians, forKey: .startPitchRadians)
         try c.encode(collisionLayers, forKey: .collisionLayers)
+        try c.encode(collisionBlocks, forKey: .collisionBlocks)
         try c.encode(stairPolygons.map { $0.map { [$0.x, $0.y, $0.z] } }, forKey: .stairPolygons)
     }
 }

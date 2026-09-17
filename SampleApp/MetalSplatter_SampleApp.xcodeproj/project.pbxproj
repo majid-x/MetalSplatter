@@ -31,6 +31,8 @@
 		61PHOTO01FILEBUILD00001 /* PhotoSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */; };
 		61PHOTO01FILEBUILD00002 /* PhotoSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */; };
 		61STAIR01FILEBUILD0000001 /* StairRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61STAIR01FILEREF00000001 /* StairRegion.swift */; };
+		61BLOCK01FILEBUILD0000001 /* CollisionBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BLOCK01FILEREF00000001 /* CollisionBlock.swift */; };
+		61BLOCK01FILEBUILD0000002 /* CollisionBlockRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +59,8 @@
 		61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchClient.swift; sourceTree = "<group>"; };
 		61PHOTO01FILEREF000002 /* PhotoSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchSidePanel.swift; sourceTree = "<group>"; };
 		61STAIR01FILEREF00000001 /* StairRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StairRegion.swift; sourceTree = "<group>"; };
+		61BLOCK01FILEREF00000001 /* CollisionBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionBlock.swift; sourceTree = "<group>"; };
+		61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionBlockRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +110,8 @@
 				61PHOTO01FILEREF000001 /* PhotoSearchClient.swift */,
 				61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */,
 				61STAIR01FILEREF00000001 /* StairRegion.swift */,
+				61BLOCK01FILEREF00000001 /* CollisionBlock.swift */,
+				61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */,
 				61NAV01FILEREF00000001 /* SceneNavigationData.swift */,
 				61NAV01FILEREF00000002 /* ScenePackageLoader.swift */,
 			);
@@ -244,6 +250,8 @@
 				61PHOTO01FILEBUILD00002 /* PhotoSearchSidePanel.swift in Sources */,
 				61COLLIS01FILEBUILD00001 /* WalkableCollisionBounds.swift in Sources */,
 				61STAIR01FILEBUILD0000001 /* StairRegion.swift in Sources */,
+				61BLOCK01FILEBUILD0000001 /* CollisionBlock.swift in Sources */,
+				61BLOCK01FILEBUILD0000002 /* CollisionBlockRenderer.swift in Sources */,
 				61NAV01FILEBUILD00000001 /* SceneNavigationData.swift in Sources */,
 				61NAV01FILEBUILD00000002 /* ScenePackageLoader.swift in Sources */,
 				610347DB2B46875700693CE3 /* VisionSceneRenderer.swift in Sources */,
