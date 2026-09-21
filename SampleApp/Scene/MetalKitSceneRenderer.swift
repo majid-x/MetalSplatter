@@ -65,6 +65,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Solid wall panels (visible + obstacle collision).
     private(set) var collisionBlocks: [CollisionBlock] = []
     private(set) var selectedCollisionBlockIndex: Int? = nil
+    /// Uniform cube size used when placing new blocks (editable in Add Block UI).
+    var placementBlockSize: Float = Constants.collisionBlockWidth
     /// Ghost brick under the cursor while placing (optional).
     private var collisionBlockPreview: CollisionBlock? = nil
     private var lastCollisionPreviewUpdate: Date? = nil
@@ -74,13 +76,19 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// True while any collision authoring mode is active (blocks stay visible).
     var isCollisionEditingActive: Bool {
-        isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingCollision
+        isPlacingCollisionBlocks
+            || isSelectingCollisionBlocks
+            || isRecordingCollision
+            || isRecordingClickCollision
     }
 
     /// When true, stair polygon vertices are placed manually (Mark Point).
     var isRecordingStairs = false
     /// Stair polygon corners (need ≥ 3). Y is height at that corner.
     private(set) var recordedStairPoints: [SIMD3<Float>] = []
+    /// Four-click solid collision quads (Click Collision tool).
+    var isRecordingClickCollision = false
+    private(set) var recordedClickCollisionPoints: [SIMD3<Float>] = []
     /// All active stair height regions (from package and/or marked polygons).
     private var stairRegions: [StairRegion] = []
     /// Standing height when off stairs. Only changes while walking on a stair region.
@@ -101,6 +109,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var savedStartPosition = SIMD3<Float>(0, 0, Constants.cameraStartZ)
     private var savedStartYaw: Float = 0
     private var savedStartPitch: Float = 0
+    /// World-space navigation frame. Default Y-up / -Z forward (legacy).
+    private var navigationUp = SIMD3<Float>(0, 1, 0)
+    private var navigationForward = SIMD3<Float>(0, 0, -1)
+    /// When true, skip the built-in 180° Z splat calibration and use `navigationUp`/`navigationForward`.
+    private var usesCustomOrientation = false
+    /// Authoring mode: look around, then Save to lock this view as straight-ahead.
+    var isSettingCameraAngles = false
+    /// Authoring mode: position + height the spawn point, then Save.
+    var isSettingStartPoint = false
+    /// WASD / pad walk speed (m/s). Look sensitivity is separate and not stored here.
+    var cameraMoveSpeed: Float = Constants.cameraMoveSpeed
     private var collisionBlockRenderer: CollisionBlockRenderer?
     var drawableSize: CGSize = .zero
 
@@ -149,9 +168,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         recordedCollisionPoints = []
         lastRecordedCollisionPoint = nil
         recordedStairPoints = []
+        recordedClickCollisionPoints = []
+        isRecordingClickCollision = false
         savedStartPosition = cameraPosition
         savedStartYaw = 0
         savedStartPitch = 0
+        navigationUp = SIMD3(0, 1, 0)
+        navigationForward = SIMD3(0, 0, -1)
+        usesCustomOrientation = false
+        isSettingCameraAngles = false
+        isSettingStartPoint = false
+        cameraMoveSpeed = Constants.cameraMoveSpeed
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
         searchedPhotos = []
@@ -208,10 +235,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         savedStartPosition = data.startPosition
         savedStartYaw = data.startYawRadians
         savedStartPitch = data.startPitchRadians
+        applyOrientation(
+            up: data.orientationUp,
+            forward: data.orientationForward
+        )
+        if let speed = data.moveSpeed, speed > 0 {
+            cameraMoveSpeed = speed
+        }
         cameraPosition = data.startPosition
         cameraYaw = data.startYawRadians
         cameraPitch = data.startPitchRadians
-        persistentFloorY = data.startPosition.y
+        persistentFloorY = heightAlongUp(data.startPosition)
 
         loadedCollisionPoints = data.collisionPoints
         let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
@@ -226,11 +260,49 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         applyStairOrGroundHeight()
     }
 
+    private func applyOrientation(up: SIMD3<Float>?, forward: SIMD3<Float>?) {
+        guard let up, let forward else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upLen = simd_length(up)
+        guard upLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upN = up / upLen
+        var forwardFlat = forward - simd_dot(forward, upN) * upN
+        let forwardLen = simd_length(forwardFlat)
+        guard forwardLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        navigationUp = upN
+        navigationForward = forwardFlat / forwardLen
+        usesCustomOrientation = true
+    }
+
+    private func heightAlongUp(_ position: SIMD3<Float>) -> Float {
+        simd_dot(position, navigationUp)
+    }
+
+    private func setHeightAlongUp(_ height: Float) {
+        let current = heightAlongUp(cameraPosition)
+        cameraPosition += (height - current) * navigationUp
+    }
+
     /// Clear all collision (walk outline + wall panels).
     func resetCollision() {
         setCollisionBlockPlacement(false)
         setCollisionBlockSelecting(false)
         setCollisionRecording(false)
+        setClickCollisionRecording(false)
         loadedCollisionPoints = []
         recordedCollisionPoints = []
         lastRecordedCollisionPoint = nil
@@ -238,6 +310,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         collisionBlocks = []
         collisionBlockPreview = nil
         selectedCollisionBlockIndex = nil
+        recordedClickCollisionPoints = []
+        isRecordingClickCollision = false
     }
 
     /// Clear all stair polygons and stop stair height following.
@@ -254,10 +328,87 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         savedStartPosition = cameraPosition
         savedStartYaw = cameraYaw
         savedStartPitch = cameraPitch
+        persistentFloorY = heightAlongUp(cameraPosition)
     }
 
-    /// Commit any in-progress recording and apply collision / stairs / start live.
+    func setCameraAnglesMode(_ enabled: Bool) {
+        if enabled {
+            setPointClickMode(false)
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setClickCollisionRecording(false)
+            setStairRecording(false)
+            isSettingStartPoint = false
+        }
+        isSettingCameraAngles = enabled
+    }
+
+    func setStartPointMode(_ enabled: Bool) {
+        if enabled {
+            setPointClickMode(false)
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setClickCollisionRecording(false)
+            setStairRecording(false)
+            isSettingCameraAngles = false
+        } else if isSettingStartPoint {
+            // Turning the mode off still commits the current pose/height.
+            markStartPoint()
+        }
+        isSettingStartPoint = enabled
+    }
+
+    /// Nudge standing height along the navigation up axis (start-point authoring).
+    func nudgeCameraHeight(_ deltaMeters: Float) {
+        cameraPosition += navigationUp * deltaMeters
+        persistentFloorY = heightAlongUp(cameraPosition)
+    }
+
+    /// Lock the current view as the straight-ahead frame only (does not change start point).
+    func commitCameraOrientation() {
+        // Bake the current view (including legacy splat calibration) into a navigation frame.
+        let currentView = viewMatrix
+        let inv = currentView.inverse
+        var up = SIMD3(inv.columns.1.x, inv.columns.1.y, inv.columns.1.z)
+        var forward = -SIMD3(inv.columns.2.x, inv.columns.2.y, inv.columns.2.z)
+
+        let upLen = simd_length(up)
+        guard upLen > 1e-5 else { return }
+        up /= upLen
+        forward = forward - simd_dot(forward, up) * up
+        let forwardLen = simd_length(forward)
+        guard forwardLen > 1e-5 else { return }
+        forward /= forwardLen
+
+        navigationUp = up
+        navigationForward = forward
+        usesCustomOrientation = true
+
+        // Straight-ahead is identity in the new frame; leave start position alone.
+        cameraYaw = 0
+        cameraPitch = 0
+        persistentFloorY = heightAlongUp(cameraPosition)
+        lastViewMatrix = viewMatrix
+        isSettingCameraAngles = false
+    }
+
+    /// Commit any in-progress recording and apply collision / stairs / start / speed live.
     func saveNavigation() {
+        // Keep authored walk speed active immediately (also written into nav export).
+        cameraMoveSpeed = max(0.001, cameraMoveSpeed)
+
+        if isSettingCameraAngles {
+            commitCameraOrientation()
+        }
+        // Always capture current camera as start while authoring the start point,
+        // and also if height was adjusted (persistentFloor tracks that).
+        if isSettingStartPoint {
+            markStartPoint()
+            isSettingStartPoint = false
+        }
+
         if isPlacingCollisionBlocks {
             setCollisionBlockPlacement(false)
         }
@@ -267,6 +418,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if isRecordingCollision {
             setCollisionRecording(false)
         }
+        if isRecordingClickCollision {
+            setClickCollisionRecording(false)
+        }
         if isRecordingStairs {
             setStairRecording(false)
         }
@@ -274,12 +428,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         walkableBounds = WalkableCollisionBounds.fromPoints(loadedCollisionPoints)
         rebuildStairRegions()
 
+        // Restore the saved start pose exactly — do not snap height back via stairs/ground.
         cameraPosition = savedStartPosition
         cameraYaw = savedStartYaw
         cameraPitch = savedStartPitch
-        persistentFloorY = savedStartPosition.y
-        applyStairOrGroundHeight()
-        cameraPosition = CollisionBlock.resolve(cameraPosition, against: collisionBlocks)
+        persistentFloorY = heightAlongUp(savedStartPosition)
+        setHeightAlongUp(persistentFloorY)
+        let keepHeight = persistentFloorY
+        let resolvedLocal = CollisionBlock.resolve(
+            navigationBasis.toLocal(cameraPosition),
+            against: collisionBlocks
+        )
+        cameraPosition = navigationBasis.toWorld(resolvedLocal)
+        // Keep authored height even if block resolve nudged Y.
+        setHeightAlongUp(keepHeight)
     }
 
     private func rebuildStairRegions() {
@@ -301,6 +463,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             startPosition: savedStartPosition,
             startYawRadians: savedStartYaw,
             startPitchRadians: savedStartPitch,
+            orientationUp: usesCustomOrientation ? navigationUp : nil,
+            orientationForward: usesCustomOrientation ? navigationForward : nil,
+            moveSpeed: cameraMoveSpeed,
             collisionPoints: collision,
             collisionBlocks: collisionBlocks,
             stairPolygons: stairs
@@ -309,9 +474,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     func setPointClickMode(_ enabled: Bool) {
         if enabled {
+            isSettingCameraAngles = false
+            isSettingStartPoint = false
             setCollisionBlockPlacement(false)
             setCollisionBlockSelecting(false)
             setCollisionRecording(false)
+            setClickCollisionRecording(false)
             setStairRecording(false)
             lastPickedCoordinate = nil
             searchedPhotos = []
@@ -352,6 +520,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if enabled {
             setCollisionBlockSelecting(false)
             setCollisionRecording(false)
+            setClickCollisionRecording(false)
             setStairRecording(false)
             setPointClickMode(false)
         }
@@ -366,6 +535,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if enabled {
             setCollisionBlockPlacement(false)
             setCollisionRecording(false)
+            setClickCollisionRecording(false)
             setStairRecording(false)
             setPointClickMode(false)
             collisionBlockPreview = nil
@@ -380,6 +550,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if enabled {
             setCollisionBlockPlacement(false)
             setCollisionBlockSelecting(false)
+            setClickCollisionRecording(false)
             setStairRecording(false)
             setPointClickMode(false)
             collisionBlockPreview = nil
@@ -398,15 +569,99 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
+    /// Start or stop 3–4 click thin collision (surface corners → thin impassable barriers).
+    func setClickCollisionRecording(_ enabled: Bool) {
+        if enabled {
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setStairRecording(false)
+            setPointClickMode(false)
+            collisionBlockPreview = nil
+        }
+        isRecordingClickCollision = enabled
+        if enabled {
+            recordedClickCollisionPoints.removeAll(keepingCapacity: true)
+        } else {
+            // Allow finishing a 3-point loop by turning the tool off.
+            commitClickCollisionIfPossible(minimumPoints: 3)
+            recordedClickCollisionPoints.removeAll(keepingCapacity: true)
+            collisionBlockPreview = nil
+        }
+    }
+
+    /// Mark one corner for Click Collision. Commits on the 4th point (or 3+ when mode ends).
+    @discardableResult
+    func markClickCollisionPoint(at viewPoint: CGPoint) -> Bool {
+        guard isRecordingClickCollision else { return false }
+        guard let world = cursorNavigationPoint(at: viewPoint) else { return false }
+        if let last = recordedClickCollisionPoints.last,
+           simd_distance(last, world) < 0.02 {
+            return false
+        }
+        recordedClickCollisionPoints.append(world)
+        updateClickCollisionPreview()
+        if recordedClickCollisionPoints.count >= 4 {
+            commitClickCollisionIfPossible(minimumPoints: 4)
+        }
+        return true
+    }
+
+    /// Remove the last Click Collision corner (or incomplete preview).
+    @discardableResult
+    func undoClickCollisionPoint() -> Bool {
+        guard isRecordingClickCollision, !recordedClickCollisionPoints.isEmpty else { return false }
+        recordedClickCollisionPoints.removeLast()
+        updateClickCollisionPreview()
+        return true
+    }
+
+    private func updateClickCollisionPreview() {
+        guard recordedClickCollisionPoints.count >= 3 else {
+            collisionBlockPreview = nil
+            return
+        }
+        let walls = CollisionBlock.fromClickPoints(
+            worldPoints: recordedClickCollisionPoints,
+            basis: navigationBasis
+        )
+        collisionBlockPreview = walls.first
+    }
+
+    private func commitClickCollisionIfPossible(minimumPoints: Int) {
+        guard recordedClickCollisionPoints.count >= minimumPoints else { return }
+        let walls = CollisionBlock.fromClickPoints(
+            worldPoints: recordedClickCollisionPoints,
+            basis: navigationBasis
+        )
+        guard !walls.isEmpty else {
+            recordedClickCollisionPoints.removeAll(keepingCapacity: true)
+            collisionBlockPreview = nil
+            return
+        }
+        for wall in walls where !collisionBlocks.contains(where: { $0.isSameCell(as: wall) }) {
+            collisionBlocks.append(wall)
+        }
+        recordedClickCollisionPoints.removeAll(keepingCapacity: true)
+        collisionBlockPreview = walls.first
+    }
+
     /// Place a wall panel at the 3D point under the cursor.
     @discardableResult
     func placeCollisionBlock(at viewPoint: CGPoint) -> Bool {
         guard isPlacingCollisionBlocks else { return false }
         guard let world = cursorNavigationPoint(at: viewPoint) else { return false }
+        let size = placementBlockSize
+        let thickness = Constants.collisionBlockThickness(forFaceSize: size)
+        let basis = navigationBasis
+        let local = basis.toLocal(world)
         let block = CollisionBlock.placement(
-            at: world,
-            yawRadians: cameraYaw,
-            existing: collisionBlocks
+            at: local,
+            yawRadians: basis.facingYaw(cameraForward: cameraForward),
+            existing: collisionBlocks,
+            width: size,
+            depth: thickness,
+            height: size
         )
         if collisionBlocks.contains(where: { $0.isSameCell(as: block) }) { return false }
         collisionBlocks.append(block)
@@ -422,9 +677,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             selectedCollisionBlockIndex = nil
             return false
         }
+        let basis = navigationBasis
+        let originLocal = basis.toLocal(origin)
+        let dirLocal = SIMD3(
+            simd_dot(direction, basis.right),
+            simd_dot(direction, basis.up),
+            simd_dot(direction, -basis.forward)
+        )
         selectedCollisionBlockIndex = CollisionBlock.hitTestRay(
-            origin: origin,
-            direction: direction,
+            origin: originLocal,
+            direction: dirLocal,
             in: collisionBlocks
         )
         return selectedCollisionBlockIndex != nil
@@ -484,17 +746,34 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
         lastCollisionPreviewUpdate = now
         guard let world = cursorNavigationPoint(at: viewPoint) else { return }
+        let size = placementBlockSize
+        let thickness = Constants.collisionBlockThickness(forFaceSize: size)
+        let basis = navigationBasis
+        let local = basis.toLocal(world)
         collisionBlockPreview = CollisionBlock.placement(
-            at: world,
-            yawRadians: cameraYaw,
-            existing: collisionBlocks
+            at: local,
+            yawRadians: basis.facingYaw(cameraForward: cameraForward),
+            existing: collisionBlocks,
+            width: size,
+            depth: thickness,
+            height: size
         )
+    }
+
+    /// Active FPS frame for block storage / collision (respects Set Camera Angles).
+    private var navigationBasis: NavigationBasis {
+        NavigationBasis(up: navigationUp, forward: navigationForward)
+    }
+
+    /// Depth unprojection is model-space only while the legacy splat calibration is in the view matrix.
+    private func navigationPoint(fromDepthPick pick: SIMD3<Float>) -> SIMD3<Float> {
+        usesCustomOrientation ? pick : SplatNavigationSpace.fromModel(pick)
     }
 
     /// 3D cursor in navigation space: prefer depth pick, else a ray fallthrough so placement stays free.
     private func cursorNavigationPoint(at viewPoint: CGPoint) -> SIMD3<Float>? {
         if let modelPoint = worldPosition(at: viewPoint) {
-            let world = SplatNavigationSpace.fromModel(modelPoint)
+            let world = navigationPoint(fromDepthPick: modelPoint)
             lastCollisionCursorPoint = world
             return world
         }
@@ -597,6 +876,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             setCollisionBlockPlacement(false)
             setCollisionBlockSelecting(false)
             setCollisionRecording(false)
+            setClickCollisionRecording(false)
         }
         isRecordingStairs = enabled
         if enabled {
@@ -612,7 +892,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func markStairPoint(at viewPoint: CGPoint) -> Bool {
         guard isRecordingStairs else { return false }
         guard let modelPoint = worldPosition(at: viewPoint) else { return false }
-        let world = SplatNavigationSpace.fromModel(modelPoint)
+        let world = navigationPoint(fromDepthPick: modelPoint)
         if let last = recordedStairPoints.last,
            simd_distance(last, world) < 0.02 {
             return false
@@ -710,17 +990,34 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
+    private var navigationRight: SIMD3<Float> {
+        let crossed = simd_cross(navigationForward, navigationUp)
+        let len = simd_length(crossed)
+        if len > 1e-5 {
+            return crossed / len
+        }
+        // Degenerate fallback.
+        let alt = abs(navigationUp.y) < 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(1, 0, 0)
+        return simd_normalize(simd_cross(navigationForward, alt))
+    }
+
     private var cameraForward: SIMD3<Float> {
+        let cosYaw = cos(cameraYaw)
+        let sinYaw = sin(cameraYaw)
         let cosPitch = cos(cameraPitch)
-        return SIMD3(
-            sin(cameraYaw) * cosPitch,
-            sin(cameraPitch),
-            -cos(cameraYaw) * cosPitch
-        )
+        let sinPitch = sin(cameraPitch)
+        // Yaw around navigation up, then pitch toward up.
+        let yawed = simd_normalize(cosYaw * navigationForward + sinYaw * navigationRight)
+        return simd_normalize(cosPitch * yawed + sinPitch * navigationUp)
     }
 
     private var cameraRight: SIMD3<Float> {
-        simd_normalize(simd_cross(cameraForward, SIMD3<Float>(0, 1, 0)))
+        let crossed = simd_cross(cameraForward, navigationUp)
+        let len = simd_length(crossed)
+        if len > 1e-5 {
+            return crossed / len
+        }
+        return navigationRight
     }
 
     private var cameraUp: SIMD3<Float> {
@@ -741,6 +1038,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             SIMD4(-simd_dot(right, eye), -simd_dot(up, eye), simd_dot(forward, eye), 1)
         ))
 
+        if usesCustomOrientation {
+            return rotationTranslation
+        }
         // Turn common 3D GS PLY files rightside-up.
         let commonUpCalibration = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 0, 1))
         return rotationTranslation * commonUpCalibration
@@ -749,7 +1049,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var projectionMatrix: matrix_float4x4 {
         matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
                                       aspectRatio: Float(drawableSize.width / max(drawableSize.height, 1)),
-                                      nearZ: 0.1,
+                                      // Perspective near must be > 0; keep extremely close for indoor viewing.
+                                      nearZ: 0.001,
                                       farZ: 500.0)
     }
 
@@ -772,9 +1073,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         // Ground-plane movement (FPS-style): ignore look pitch so forward never flies up/down.
         var forward = cameraForward
-        forward.y = 0
+        forward -= simd_dot(forward, navigationUp) * navigationUp
         var right = cameraRight
-        right.y = 0
+        right -= simd_dot(right, navigationUp) * navigationUp
 
         let forwardLength = simd_length(forward)
         let rightLength = simd_length(right)
@@ -790,9 +1091,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         let length = simd_length(direction)
         if length > 0 {
-            let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
-            if isRecordingStairs {
-                // Free XZ while marking stairs.
+            let proposed = cameraPosition + (direction / length) * cameraMoveSpeed * deltaTime
+            if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint {
+                // Free XZ while marking stairs / setting camera angles / start point.
                 cameraPosition = proposed
             } else {
                 var clamped = proposed
@@ -801,31 +1102,36 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
                     clamped = walkableBounds.clamp(clamped)
                 }
                 // Solid wall panels: slide along faces — never teleport through.
-                if isPlacingCollisionBlocks || isSelectingCollisionBlocks {
+                if isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingClickCollision {
                     cameraPosition = clamped
                 } else {
-                    cameraPosition = CollisionBlock.move(
-                        from: cameraPosition,
-                        to: clamped,
+                    let basis = navigationBasis
+                    let moved = CollisionBlock.move(
+                        from: basis.toLocal(cameraPosition),
+                        to: basis.toLocal(clamped),
                         against: collisionBlocks
                     )
+                    cameraPosition = basis.toWorld(moved)
                 }
             }
         }
 
-        if isRecordingStairs {
+        if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint {
             if movement.up {
-                cameraPosition.y += Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition += navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
             if movement.down {
-                cameraPosition.y -= Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition -= navigationUp * Constants.stairRecordClimbSpeed * deltaTime
+            }
+            if isSettingCameraAngles || isSettingStartPoint {
+                persistentFloorY = heightAlongUp(cameraPosition)
             }
         } else if isRecordingCollision {
             recordCollisionSampleIfNeeded()
         } else {
             applyStairOrGroundHeight()
             // Block collision is XZ-only; never let it change standing height.
-            cameraPosition.y = persistentFloorY
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
@@ -833,16 +1139,11 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if let height = stairRegions.lazy.compactMap({ $0.navigationHeight(at: self.cameraPosition) }).first {
             // On stairs: climb between that region's floors.
             persistentFloorY = height
-            cameraPosition.y = height
-        } else if !stairRegions.isEmpty {
-            // Off stairs: stick to the nearer floor among all stair regions.
-            let floors = stairRegions.flatMap { [$0.lowerFloorY, $0.upperFloorY] }
-            if let nearest = floors.min(by: { abs($0 - persistentFloorY) < abs($1 - persistentFloorY) }) {
-                persistentFloorY = nearest
-            }
-            cameraPosition.y = persistentFloorY
+            setHeightAlongUp(height)
         } else {
-            cameraPosition.y = persistentFloorY
+            // Off stairs (or no stairs): keep the authored / last floor height.
+            // Do not snap to the nearest stair floor — that was resetting Set Start Point height.
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
@@ -938,12 +1239,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
 
         if didRender {
+            // Authoring only — hide walls after Save so the playable view stays clean.
             if isCollisionEditingActive {
                 let colorTexture = view.multisampleColorTexture ?? drawable.texture
                 collisionBlockRenderer?.draw(
                     blocks: collisionBlocks,
-                    preview: isPlacingCollisionBlocks ? collisionBlockPreview : nil,
+                    preview: (isPlacingCollisionBlocks || isRecordingClickCollision)
+                        ? collisionBlockPreview : nil,
                     selectedIndex: isSelectingCollisionBlocks ? selectedCollisionBlockIndex : nil,
+                    basis: navigationBasis,
+                    applySplatFlip: !usesCustomOrientation,
                     viewProjection: lastProjectionMatrix * lastViewMatrix,
                     colorTexture: colorTexture,
                     depthTexture: view.depthStencilTexture,

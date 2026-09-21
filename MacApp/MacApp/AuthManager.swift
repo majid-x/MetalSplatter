@@ -26,7 +26,10 @@ final class AuthManager {
     private(set) var isBootstrapping = true
     private(set) var statusMessage: String?
 
-    var isAuthenticated: Bool { session != nil }
+    var isAuthenticated: Bool {
+        guard let session else { return false }
+        return !session.isExpired
+    }
 
     var displayName: String {
         if let fullName = session?.user.userMetadata["full_name"]?.stringValue,
@@ -83,16 +86,20 @@ final class AuthManager {
             guard !Task.isCancelled else { return }
 
             switch event {
-            case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
+            case .initialSession:
+                // Local session may be expired; don't treat it as signed-in until refreshed.
+                if let session, !session.isExpired {
+                    self.session = session
+                } else {
+                    self.session = nil
+                }
+                isBootstrapping = false
+            case .signedIn, .tokenRefreshed, .userUpdated:
                 self.session = session
             case .signedOut:
                 self.session = nil
             default:
                 break
-            }
-
-            if event == .initialSession {
-                isBootstrapping = false
             }
         }
     }

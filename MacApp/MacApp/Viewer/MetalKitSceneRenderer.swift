@@ -8,6 +8,9 @@ import SampleBoxRenderer
 import simd
 import SplatIO
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
@@ -66,8 +69,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var isRecordingStairs = false
     /// Stair polygon corners (need ≥ 3). Y is height at that corner.
     private(set) var recordedStairPoints: [SIMD3<Float>] = []
-    /// Active stair height region (from scene package and/or last marked polygon).
-    private var stairRegion: StairRegion? = nil
+    /// Active stair height regions from the scene package.
+    private var stairRegions: [StairRegion] = []
     /// Standing height when off stairs. Only changes while walking on a stair region.
     private var persistentFloorY: Float = Constants.cameraGroundY
 
@@ -79,13 +82,32 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private let photoSearchClient = PhotoSearchClient()
     /// Walkable region from scene package or a finished collision recording.
     private var walkableBounds: WalkableCollisionBounds? = nil
+    /// Solid wall panels from scene package `[blocks]`.
+    private var collisionBlocks: [CollisionBlock] = []
     /// Collision / stair source points kept for "Download TXT" re-export.
     private var loadedCollisionPoints: [SIMD3<Float>] = []
-    private var loadedStairVertices: [SIMD3<Float>] = []
+    private var loadedStairPolygons: [[SIMD3<Float>]] = []
+    /// World-space navigation frame (custom when nav.txt has `[orientation]`).
+    private var navigationUp = SIMD3<Float>(0, 1, 0)
+    private var navigationForward = SIMD3<Float>(0, 0, -1)
+    private var usesCustomOrientation = false
+    /// WASD walk speed (m/s); loaded from nav.txt `[settings]`.
+    var cameraMoveSpeed: Float = Constants.cameraMoveSpeed
     var drawableSize: CGSize = .zero
 
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
     var onPointClickStateChanged: (() -> Void)?
+
+    /// Filled on the next rendered frame when a product-search screenshot is requested.
+    private var screenshotContinuation: CheckedContinuation<NSImage?, Never>?
+
+    /// Captures the next presented frame as an `NSImage` (BGRA framebuffer readback).
+    func captureScreenshotImage() async -> NSImage? {
+        await withCheckedContinuation { continuation in
+            screenshotContinuation?.resume(returning: nil)
+            screenshotContinuation = continuation
+        }
+    }
 
     init?(_ metalKitView: MTKView) {
         self.device = metalKitView.device!
@@ -96,6 +118,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         metalKitView.depthStencilPixelFormat = MTLPixelFormat.depth32Float
         metalKitView.sampleCount = 1
         metalKitView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        // Required so drawable.texture can be blit/read for screenshots.
+        metalKitView.framebufferOnly = false
         depthReadbackBuffer = device.makeBuffer(length: MemoryLayout<Float>.size, options: .storageModeShared)
     }
 
@@ -109,10 +133,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraYaw = 0
         cameraPitch = 0
         persistentFloorY = Constants.cameraGroundY
+        navigationUp = SIMD3(0, 1, 0)
+        navigationForward = SIMD3(0, 0, -1)
+        usesCustomOrientation = false
+        cameraMoveSpeed = Constants.cameraMoveSpeed
         walkableBounds = nil
-        stairRegion = nil
+        stairRegions = []
+        collisionBlocks = []
         loadedCollisionPoints = []
-        loadedStairVertices = []
+        loadedStairPolygons = []
         recordedCollisionPoints = []
         recordedStairPoints = []
         lastRecordedCollisionPoint = nil
@@ -167,23 +196,84 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    /// Apply start pose + collision + stairs from a scene package `nav.txt`.
+    /// Apply start pose + orientation + walk speed + collision + stairs from a scene package `nav.txt`.
     func applyNavigation(_ data: SceneNavigationData) {
+        // 1) Camera frame (custom orientation skips the legacy splat 180° flip).
+        applyOrientation(up: data.orientationUp, forward: data.orientationForward)
+
+        // 2) Walk speed from `[settings] move_speed`.
+        if let speed = data.moveSpeed, speed > 0 {
+            cameraMoveSpeed = max(0.001, speed)
+        }
+
+        // 3) Start pose from `[start]`.
         cameraPosition = data.startPosition
         cameraYaw = data.startYawRadians
         cameraPitch = data.startPitchRadians
-        persistentFloorY = data.startPosition.y
+        let startHeight = heightAlongUp(data.startPosition)
+        persistentFloorY = startHeight
 
+        // 4) Walkable outline layers from `[collision]` / `[collision floor=…]`.
         loadedCollisionPoints = data.collisionPoints
         let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
         walkableBounds = WalkableCollisionBounds.fromClusters(clusters)
 
-        loadedStairVertices = data.stairVertices
-        if let region = StairRegion.make(vertices: data.stairVertices) {
-            stairRegion = region
-        }
+        // 5) Solid walls from `[blocks]` (Add Block / Click Collision).
+        collisionBlocks = data.collisionBlocks
+
+        // 6) Stair polygons from one or more `[stairs]` sections.
+        loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
+        stairRegions = loadedStairPolygons.compactMap { StairRegion.make(vertices: $0) }
 
         applyStairOrGroundHeight()
+
+        // Keep authored start height; only slide XZ out of solid walls.
+        let keepHeight = heightAlongUp(data.startPosition)
+        persistentFloorY = keepHeight
+        let basis = NavigationBasis(up: navigationUp, forward: navigationForward)
+        let resolvedLocal = CollisionBlock.resolve(
+            basis.toLocal(cameraPosition),
+            against: collisionBlocks
+        )
+        cameraPosition = basis.toWorld(resolvedLocal)
+        setHeightAlongUp(keepHeight)
+    }
+
+    private func applyOrientation(up: SIMD3<Float>?, forward: SIMD3<Float>?) {
+        guard let up, let forward else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upLen = simd_length(up)
+        guard upLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upN = up / upLen
+        var forwardFlat = forward - simd_dot(forward, upN) * upN
+        let forwardLen = simd_length(forwardFlat)
+        guard forwardLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        navigationUp = upN
+        navigationForward = forwardFlat / forwardLen
+        usesCustomOrientation = true
+    }
+
+    private func heightAlongUp(_ position: SIMD3<Float>) -> Float {
+        simd_dot(position, navigationUp)
+    }
+
+    private func setHeightAlongUp(_ height: Float) {
+        let current = heightAlongUp(cameraPosition)
+        cameraPosition += (height - current) * navigationUp
     }
 
     func setPointClickMode(_ enabled: Bool) {
@@ -243,18 +333,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Combined nav.txt for packaging with a PLY inside a zip.
     func navigationExportText() -> String {
         let collision = !recordedCollisionPoints.isEmpty ? recordedCollisionPoints : loadedCollisionPoints
-        let stairs: [SIMD3<Float>]
+        var stairs = loadedStairPolygons
         if recordedStairPoints.count >= 3 {
-            stairs = recordedStairPoints
-        } else {
-            stairs = loadedStairVertices
+            stairs.append(recordedStairPoints)
         }
         return SceneNavigationData(
             startPosition: cameraPosition,
             startYawRadians: cameraYaw,
             startPitchRadians: cameraPitch,
+            orientationUp: usesCustomOrientation ? navigationUp : nil,
+            orientationForward: usesCustomOrientation ? navigationForward : nil,
+            moveSpeed: cameraMoveSpeed,
             collisionPoints: collision,
-            stairVertices: stairs
+            collisionBlocks: collisionBlocks,
+            stairPolygons: stairs
         ).serialize()
     }
 
@@ -338,11 +430,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private func commitStairRegionIfPossible() {
-        if let region = StairRegion.make(vertices: recordedStairPoints) {
-            stairRegion = region
-            loadedStairVertices = recordedStairPoints
-            applyStairOrGroundHeight()
-        }
+        guard recordedStairPoints.count >= 3,
+              StairRegion.make(vertices: recordedStairPoints) != nil else { return }
+        loadedStairPolygons.append(recordedStairPoints)
+        stairRegions = loadedStairPolygons.compactMap { StairRegion.make(vertices: $0) }
+        recordedStairPoints.removeAll(keepingCapacity: true)
+        applyStairOrGroundHeight()
     }
 
     /// Pick the rendered surface under a click and search nearby source photos.
@@ -400,17 +493,32 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
+    private var navigationRight: SIMD3<Float> {
+        let crossed = simd_cross(navigationForward, navigationUp)
+        let len = simd_length(crossed)
+        if len > 1e-5 {
+            return crossed / len
+        }
+        let alt = abs(navigationUp.y) < 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(1, 0, 0)
+        return simd_normalize(simd_cross(navigationForward, alt))
+    }
+
     private var cameraForward: SIMD3<Float> {
+        let cosYaw = cos(cameraYaw)
+        let sinYaw = sin(cameraYaw)
         let cosPitch = cos(cameraPitch)
-        return SIMD3(
-            sin(cameraYaw) * cosPitch,
-            sin(cameraPitch),
-            -cos(cameraYaw) * cosPitch
-        )
+        let sinPitch = sin(cameraPitch)
+        let yawed = simd_normalize(cosYaw * navigationForward + sinYaw * navigationRight)
+        return simd_normalize(cosPitch * yawed + sinPitch * navigationUp)
     }
 
     private var cameraRight: SIMD3<Float> {
-        simd_normalize(simd_cross(cameraForward, SIMD3<Float>(0, 1, 0)))
+        let crossed = simd_cross(cameraForward, navigationUp)
+        let len = simd_length(crossed)
+        if len > 1e-5 {
+            return crossed / len
+        }
+        return navigationRight
     }
 
     private var cameraUp: SIMD3<Float> {
@@ -431,6 +539,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             SIMD4(-simd_dot(right, eye), -simd_dot(up, eye), simd_dot(forward, eye), 1)
         ))
 
+        if usesCustomOrientation {
+            return rotationTranslation
+        }
         // Turn common 3D GS PLY files rightside-up.
         let commonUpCalibration = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 0, 1))
         return rotationTranslation * commonUpCalibration
@@ -439,7 +550,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var projectionMatrix: matrix_float4x4 {
         matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
                                       aspectRatio: Float(drawableSize.width / max(drawableSize.height, 1)),
-                                      nearZ: 0.1,
+                                      // Perspective near must be > 0; keep extremely close for indoor viewing.
+                                      nearZ: 0.001,
                                       farZ: 500.0)
     }
 
@@ -462,9 +574,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         // Ground-plane movement (FPS-style): ignore look pitch so forward never flies up/down.
         var forward = cameraForward
-        forward.y = 0
+        forward -= simd_dot(forward, navigationUp) * navigationUp
         var right = cameraRight
-        right.y = 0
+        right -= simd_dot(right, navigationUp) * navigationUp
 
         let forwardLength = simd_length(forward)
         let rightLength = simd_length(right)
@@ -480,43 +592,47 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         let length = simd_length(direction)
         if length > 0 {
-            let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
-            // While recording collision/stairs, allow free XZ.
-            // Otherwise clamp using only the collision layer for the current camera height.
+            let proposed = cameraPosition + (direction / length) * cameraMoveSpeed * deltaTime
             if isRecordingCollision || isRecordingStairs {
                 cameraPosition = proposed
-            } else if let walkableBounds {
-                cameraPosition = walkableBounds.clamp(proposed)
             } else {
-                cameraPosition = proposed
+                var clamped = proposed
+                if let walkableBounds {
+                    clamped = walkableBounds.clamp(clamped)
+                }
+                let basis = NavigationBasis(up: navigationUp, forward: navigationForward)
+                cameraPosition = basis.toWorld(
+                    CollisionBlock.move(
+                        from: basis.toLocal(cameraPosition),
+                        to: basis.toLocal(clamped),
+                        against: collisionBlocks
+                    )
+                )
             }
         }
 
         if isRecordingStairs {
             if movement.up {
-                cameraPosition.y += Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition += navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
             if movement.down {
-                cameraPosition.y -= Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition -= navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
         } else if isRecordingCollision {
             recordCollisionSampleIfNeeded()
         } else {
             applyStairOrGroundHeight()
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
     private func applyStairOrGroundHeight() {
-        if let stairRegion, let height = stairRegion.navigationHeight(at: cameraPosition) {
-            // On stairs: climb between normal ground and normal upper floor.
+        if let height = stairRegions.lazy.compactMap({ $0.navigationHeight(at: self.cameraPosition) }).first {
             persistentFloorY = height
-            cameraPosition.y = height
-        } else if let stairRegion {
-            // Off stairs: stick to the nearer normal floor (ground or upper).
-            persistentFloorY = stairRegion.nearestFloorY(to: persistentFloorY)
-            cameraPosition.y = persistentFloorY
+            setHeightAlongUp(height)
         } else {
-            cameraPosition.y = persistentFloorY
+            // Keep authored / last floor height; don't snap to nearest stair floor.
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
@@ -576,13 +692,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        guard let modelRenderer, modelRenderer.isReadyToRender else { return }
+        guard let modelRenderer, modelRenderer.isReadyToRender else {
+            failPendingScreenshot()
+            return
+        }
         guard let drawable = view.currentDrawable else { return }
 
         _ = inFlightSemaphore.wait(timeout: DispatchTime.distantFuture)
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             inFlightSemaphore.signal()
+            failPendingScreenshot()
             return
         }
 
@@ -599,23 +719,140 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         let didRender: Bool
         do {
-            didRender = try modelRenderer.render(viewports: [viewport],
-                                                 colorTexture: view.multisampleColorTexture ?? drawable.texture,
-                                                 colorStoreAction: view.multisampleColorTexture == nil ? .store : .multisampleResolve,
-                                                 depthTexture: view.depthStencilTexture,
-                                                 rasterizationRateMap: nil,
-                                                 renderTargetArrayLength: 0,
-                                                 to: commandBuffer)
+            didRender = try modelRenderer.render(
+                viewports: [viewport],
+                colorTexture: view.multisampleColorTexture ?? drawable.texture,
+                colorStoreAction: view.multisampleColorTexture == nil ? .store : .multisampleResolve,
+                depthTexture: view.depthStencilTexture,
+                rasterizationRateMap: nil,
+                renderTargetArrayLength: 0,
+                to: commandBuffer
+            )
         } catch {
             Self.log.error("Unable to render scene: \(error.localizedDescription)")
             didRender = false
         }
 
         if didRender {
+            if let continuation = screenshotContinuation {
+                screenshotContinuation = nil
+                // Prefer resolved MSAA texture when present; otherwise the drawable (now readable).
+                let source = view.multisampleColorTexture ?? drawable.texture
+                enqueueScreenshotReadback(
+                    from: source,
+                    commandBuffer: commandBuffer,
+                    continuation: continuation
+                )
+            }
             commandBuffer.present(drawable)
+        } else {
+            failPendingScreenshot()
         }
 
         commandBuffer.commit()
+    }
+
+    private func failPendingScreenshot() {
+        guard let continuation = screenshotContinuation else { return }
+        screenshotContinuation = nil
+        continuation.resume(returning: nil)
+    }
+
+    private func enqueueScreenshotReadback(
+        from texture: MTLTexture,
+        commandBuffer: MTLCommandBuffer,
+        continuation: CheckedContinuation<NSImage?, Never>
+    ) {
+        let width = texture.width
+        let height = texture.height
+        guard width > 0, height > 0 else {
+            continuation.resume(returning: nil)
+            return
+        }
+
+        // Metal requires destination bytes-per-row alignment (typically 256 on Apple GPUs).
+        let bytesPerPixel = 4
+        let alignment = max(device.minimumLinearTextureAlignment(for: texture.pixelFormat), bytesPerPixel)
+        let bytesPerRow = ((width * bytesPerPixel + alignment - 1) / alignment) * alignment
+        let byteCount = bytesPerRow * height
+
+        guard !texture.isFramebufferOnly else {
+            Self.log.error("Screenshot source is framebufferOnly; set MTKView.framebufferOnly = false")
+            continuation.resume(returning: nil)
+            return
+        }
+
+        guard let buffer = device.makeBuffer(length: byteCount, options: .storageModeShared),
+              let blit = commandBuffer.makeBlitCommandEncoder() else {
+            continuation.resume(returning: nil)
+            return
+        }
+
+        blit.copy(
+            from: texture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: width, height: height, depth: 1),
+            to: buffer,
+            destinationOffset: 0,
+            destinationBytesPerRow: bytesPerRow,
+            destinationBytesPerImage: byteCount
+        )
+        blit.endEncoding()
+
+        commandBuffer.addCompletedHandler { _ in
+            let bgraData = Data(bytes: buffer.contents(), count: byteCount)
+            let image = Self.makeNSImage(
+                bgraData: bgraData,
+                width: width,
+                height: height,
+                bytesPerRow: bytesPerRow
+            )
+            DispatchQueue.main.async {
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
+    nonisolated private static func makeNSImage(
+        bgraData: Data,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int
+    ) -> NSImage? {
+        // Compact tightly packed RGBA for CGImage (source rows may be padded).
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        bgraData.withUnsafeBytes { raw in
+            guard let src = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let srcIndex = y * bytesPerRow + x * 4
+                    let dstIndex = (y * width + x) * 4
+                    // BGRA → RGBA
+                    rgba[dstIndex + 0] = src[srcIndex + 2]
+                    rgba[dstIndex + 1] = src[srcIndex + 1]
+                    rgba[dstIndex + 2] = src[srcIndex + 0]
+                    rgba[dstIndex + 3] = src[srcIndex + 3]
+                }
+            }
+        }
+
+        let packedBytesPerRow = width * 4
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: &rgba,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: packedBytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ),
+        let cgImage = context.makeImage() else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {

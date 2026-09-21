@@ -7,6 +7,9 @@ enum SupabaseConfig {
 
     static let client = SupabaseClient(
         supabaseURL: url,
-        supabaseKey: publishableKey
+        supabaseKey: publishableKey,
+        options: .init(
+            auth: .init(emitLocalSessionAsInitialSession: true)
+        )
     )
 }

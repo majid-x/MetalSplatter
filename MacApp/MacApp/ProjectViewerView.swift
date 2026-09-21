@@ -18,7 +18,7 @@ struct ProjectViewerView: View {
     @State private var pulse = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
             if let model, phase == .ready || phase == .loadingScene {
@@ -38,39 +38,35 @@ struct ProjectViewerView: View {
                     .transition(.opacity)
             }
 
-            VStack {
-                HStack {
-                    Button {
-                        onBack()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Projects")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay {
-                            Capsule()
-                                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
-                        }
+            HStack(spacing: 12) {
+                Button {
+                    onBack()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Projects")
+                            .font(.system(size: 13, weight: .medium))
                     }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text(title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                    }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .buttonStyle(.plain)
 
-                Spacer()
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .allowsHitTesting(false)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
         }
         .preferredColorScheme(.dark)
         .task {
@@ -170,7 +166,7 @@ struct ProjectViewerView: View {
         case .ready:
             return ""
         case .failed:
-            return "Check that Archive.zip is bundled with the app."
+            return "Free disk space if unpacking failed, and confirm Archive.zip is bundled."
         }
     }
 

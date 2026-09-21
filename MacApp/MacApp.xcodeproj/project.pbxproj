@@ -31,9 +31,14 @@
 		C1000000000000000000000C /* ScenePackageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000C /* ScenePackageLoader.swift */; };
 		C1000000000000000000000D /* StairRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000D /* StairRegion.swift */; };
 		C1000000000000000000000E /* WalkableCollisionBounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000E /* WalkableCollisionBounds.swift */; };
+		C10000000000000000000012 /* CollisionBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000012 /* CollisionBlock.swift */; };
 		C1000000000000000000000F /* MetalKitSceneRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000F /* MetalKitSceneRenderer.swift */; };
 		C10000000000000000000010 /* PhotoSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000010 /* PhotoSearchSidePanel.swift */; };
 		C10000000000000000000011 /* Archive.zip in Resources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000011 /* Archive.zip */; };
+		C10000000000000000000013 /* ProductSearchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000013 /* ProductSearchConfig.swift */; };
+		C10000000000000000000014 /* ProductSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000014 /* ProductSearchClient.swift */; };
+		C10000000000000000000015 /* ProductSearchSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000015 /* ProductSearchSidePanel.swift */; };
+		C10000000000000000000016 /* ScreenshotSelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000016 /* ScreenshotSelectionOverlay.swift */; };
 		C10000000000000000000020 /* SampleBoxRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = C40000000000000000000001 /* SampleBoxRenderer */; };
 /* End PBXBuildFile section */
 
@@ -61,9 +66,14 @@
 		C2000000000000000000000C /* ScenePackageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePackageLoader.swift; sourceTree = "<group>"; };
 		C2000000000000000000000D /* StairRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StairRegion.swift; sourceTree = "<group>"; };
 		C2000000000000000000000E /* WalkableCollisionBounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkableCollisionBounds.swift; sourceTree = "<group>"; };
+		C20000000000000000000012 /* CollisionBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionBlock.swift; sourceTree = "<group>"; };
 		C2000000000000000000000F /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
 		C20000000000000000000010 /* PhotoSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSearchSidePanel.swift; sourceTree = "<group>"; };
 		C20000000000000000000011 /* Archive.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; path = Archive.zip; sourceTree = "<group>"; };
+		C20000000000000000000013 /* ProductSearchConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSearchConfig.swift; sourceTree = "<group>"; };
+		C20000000000000000000014 /* ProductSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSearchClient.swift; sourceTree = "<group>"; };
+		C20000000000000000000015 /* ProductSearchSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSearchSidePanel.swift; sourceTree = "<group>"; };
+		C20000000000000000000016 /* ScreenshotSelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSelectionOverlay.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -100,6 +110,10 @@
 				A20000000000000000000009 /* DashboardView.swift */,
 				C20000000000000000000001 /* ClientSceneView.swift */,
 				C20000000000000000000002 /* ProjectViewerView.swift */,
+				C20000000000000000000013 /* ProductSearchConfig.swift */,
+				C20000000000000000000014 /* ProductSearchClient.swift */,
+				C20000000000000000000015 /* ProductSearchSidePanel.swift */,
+				C20000000000000000000016 /* ScreenshotSelectionOverlay.swift */,
 				C50000000000000000000002 /* Viewer */,
 				C50000000000000000000001 /* Resources */,
 				A20000000000000000000003 /* Assets.xcassets */,
@@ -131,6 +145,7 @@
 				C2000000000000000000000C /* ScenePackageLoader.swift */,
 				C2000000000000000000000D /* StairRegion.swift */,
 				C2000000000000000000000E /* WalkableCollisionBounds.swift */,
+				C20000000000000000000012 /* CollisionBlock.swift */,
 				C2000000000000000000000F /* MetalKitSceneRenderer.swift */,
 				C20000000000000000000010 /* PhotoSearchSidePanel.swift */,
 			);
@@ -155,6 +170,7 @@
 				A60000000000000000000002 /* Sources */,
 				A30000000000000000000001 /* Frameworks */,
 				A60000000000000000000003 /* Resources */,
+				C60000000000000000000001 /* Strip Resource Xattrs */,
 			);
 			buildRules = (
 			);
@@ -220,6 +236,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		C60000000000000000000001 /* Strip Resource Xattrs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Strip Resource Xattrs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Extended attributes on bundled resources (esp. Archive.zip) cause:\n#   Command CodeSign failed with a nonzero exit code\n#   \"resource fork, Finder information, or similar detritus not allowed\"\nif [ -d \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\" ]; then\n  xattr -cr \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\" 2>/dev/null || true\nfi\nif [ -d \"${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}\" ]; then\n  xattr -cr \"${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}\" 2>/dev/null || true\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A60000000000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -245,8 +283,13 @@
 				C1000000000000000000000C /* ScenePackageLoader.swift in Sources */,
 				C1000000000000000000000D /* StairRegion.swift in Sources */,
 				C1000000000000000000000E /* WalkableCollisionBounds.swift in Sources */,
+				C10000000000000000000012 /* CollisionBlock.swift in Sources */,
 				C1000000000000000000000F /* MetalKitSceneRenderer.swift in Sources */,
 				C10000000000000000000010 /* PhotoSearchSidePanel.swift in Sources */,
+				C10000000000000000000013 /* ProductSearchConfig.swift in Sources */,
+				C10000000000000000000014 /* ProductSearchClient.swift in Sources */,
+				C10000000000000000000015 /* ProductSearchSidePanel.swift in Sources */,
+				C10000000000000000000016 /* ScreenshotSelectionOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -293,8 +336,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6Q58X32CJA;
-				ENABLE_HARDENED_RUNTIME = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";
@@ -325,8 +368,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6Q58X32CJA;
-				ENABLE_HARDENED_RUNTIME = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";

@@ -134,6 +134,8 @@ final class CollisionBlockRenderer {
         blocks: [CollisionBlock],
         preview: CollisionBlock?,
         selectedIndex: Int?,
+        basis: NavigationBasis = .yUp,
+        applySplatFlip: Bool = true,
         viewProjection: matrix_float4x4,
         colorTexture: MTLTexture,
         depthTexture: MTLTexture?,
@@ -163,12 +165,20 @@ final class CollisionBlockRenderer {
         let ghost = SIMD4<Float>(0.15, 0.95, 0.45, 0.35)
 
         func drawBlock(_ block: CollisionBlock, color: SIMD4<Float>) {
-            let modelCenter = SplatNavigationSpace.toModel(block.center)
             let scale = matrix_float4x4(diagonal: SIMD4(block.width, block.height, block.depth, 1))
-            // Negate yaw: model X/Y are flipped relative to navigation space.
-            let rotation = matrix4x4_rotation(radians: -block.yawRadians, axis: SIMD3(0, 1, 0))
-            let translation = matrix4x4_translation(modelCenter.x, modelCenter.y, modelCenter.z)
-            let model = translation * rotation * scale
+            let yaw = matrix4x4_rotation(radians: block.yawRadians, axis: SIMD3(0, 1, 0))
+            let worldCenter = basis.toWorld(block.center)
+            let model: matrix_float4x4
+            if applySplatFlip {
+                // Legacy path: view matrix includes 180° Z splat calibration.
+                let modelCenter = SplatNavigationSpace.toModel(worldCenter)
+                let rotation = matrix4x4_rotation(radians: -block.yawRadians, axis: SIMD3(0, 1, 0))
+                let translation = matrix4x4_translation(modelCenter.x, modelCenter.y, modelCenter.z)
+                model = translation * rotation * scale
+            } else {
+                let translation = matrix4x4_translation(worldCenter.x, worldCenter.y, worldCenter.z)
+                model = translation * basis.worldFromLocalMatrix * yaw * scale
+            }
             var uniforms = Uniforms(
                 modelViewProjection: viewProjection * model,
                 color: color

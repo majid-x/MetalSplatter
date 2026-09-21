@@ -156,8 +156,7 @@ FragmentIn splatVertex(Splat splat,
     float4 viewPosition4 = uniforms.viewMatrix * float4(splat.position, 1);
     float3 viewPosition3 = viewPosition4.xyz;
 
-    // Early cull: skip splats behind or at the camera plane
-    // (In view space, camera looks down -z, so z >= 0 means behind camera)
+    // Camera looks down -Z. Cull only behind/at the camera. Near-plane is handled by projection.
     if (viewPosition3.z >= 0) {
         out.position = float4(1, 1, 0, 1);
         return out;
@@ -181,6 +180,18 @@ FragmentIn splatVertex(Splat splat,
     float2 axis1;
     float2 axis2;
     decomposeCovariance(cov2D, axis1, axis2);
+
+    // Cap projected splat size so close walls don't become a giant center blob.
+    float2 screenSizeF = float2(uniforms.screenSize.x, uniforms.screenSize.y);
+    float maxAxisPixels = 0.22 * max(screenSizeF.x, screenSizeF.y);
+    float axis1Len = length(axis1);
+    float axis2Len = length(axis2);
+    if (axis1Len > maxAxisPixels) {
+        axis1 *= maxAxisPixels / axis1Len;
+    }
+    if (axis2Len > maxAxisPixels) {
+        axis2 *= maxAxisPixels / axis2Len;
+    }
 
     float4 projectedCenter = uniforms.projectionMatrix * viewPosition4;
 

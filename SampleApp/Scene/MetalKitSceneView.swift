@@ -24,14 +24,24 @@ struct MetalKitSceneView: View {
     @State private var isPlacingCollisionBlocks = false
     @State private var isSelectingCollisionBlocks = false
     @State private var isRecordingCollision = false
+    @State private var isRecordingClickCollision = false
 #if os(iOS)
     @State private var exportDocument = CollisionPathDocument(text: "")
     @State private var isExportingNavigation = false
 #endif
     @State private var isRecordingStairs = false
+    @State private var isSettingCameraAngles = false
+    @State private var isSettingStartPoint = false
+    @State private var showMoveSpeedControls = false
+    @State private var moveSpeedSlider: Double = Double(Constants.cameraMoveSpeed)
+    @State private var heightNudgeSensitivity: Double = 0.05
+    @State private var blockSize: Double = Double(Constants.collisionBlockWidth)
 
     private var isCollisionModeActive: Bool {
-        isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingCollision
+        isPlacingCollisionBlocks
+            || isSelectingCollisionBlocks
+            || isRecordingCollision
+            || isRecordingClickCollision
     }
 
     var body: some View {
@@ -65,6 +75,10 @@ struct MetalKitSceneView: View {
                                     isSelectingCollisionBlocks = false
                                     isRecordingCollision = false
                                     isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
                                 }
                                 rendererBox.renderer?.setPointClickMode(enabled)
                                 pointClickMode = enabled
@@ -93,8 +107,17 @@ struct MetalKitSceneView: View {
                                     isSelectingCollisionBlocks = false
                                     isRecordingCollision = false
                                     isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
+                                    if let renderer = rendererBox.renderer {
+                                        blockSize = Double(renderer.placementBlockSize)
+                                    }
                                 }
 #if os(macOS)
                                 if enabled {
@@ -107,14 +130,66 @@ struct MetalKitSceneView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(isPlacingCollisionBlocks ? .red : .accentColor)
 
+                            Button(isRecordingClickCollision ? "Click Collision: On" : "Click Collision") {
+                                let enabled = !isRecordingClickCollision
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
+                                }
+#if os(macOS)
+                                if enabled {
+                                    rendererBox.cameraView?.setMouseLookActive(false)
+                                }
+#endif
+                                rendererBox.renderer?.setClickCollisionRecording(enabled)
+                                isRecordingClickCollision = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isRecordingClickCollision ? .orange : .accentColor)
+
+                            if isRecordingClickCollision {
+                                Button("Undo Point") {
+                                    _ = rendererBox.renderer?.undoClickCollisionPoint()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled((rendererBox.renderer?.recordedClickCollisionPoints.isEmpty) ?? true)
+
+                                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                                    let count = rendererBox.renderer?.recordedClickCollisionPoints.count ?? 0
+                                    let blocks = rendererBox.renderer?.collisionBlocks.count ?? 0
+                                    Text(clickCollisionHint(pointCount: count, blockCount: blocks))
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
                             Button(isRecordingCollision ? "Recording Walk…" : "Walking Collision") {
                                 let enabled = !isRecordingCollision
                                 if enabled {
                                     isPlacingCollisionBlocks = false
                                     isSelectingCollisionBlocks = false
                                     isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
                                 }
                                 rendererBox.renderer?.setCollisionRecording(enabled)
                                 isRecordingCollision = enabled
@@ -128,8 +203,14 @@ struct MetalKitSceneView: View {
                                     isPlacingCollisionBlocks = false
                                     isRecordingCollision = false
                                     isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
 #if os(macOS)
                                     rendererBox.cameraView?.setMouseLookActive(false)
 #endif
@@ -158,6 +239,27 @@ struct MetalKitSceneView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled((rendererBox.renderer?.collisionBlocks.isEmpty) ?? true)
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    NumericParamControl(
+                                        title: "Wall size",
+                                        value: $blockSize,
+                                        range: 0.001...Double(Constants.collisionBlockMaxWidth),
+                                        suffix: "m"
+                                    ) { value in
+                                        rendererBox.renderer?.placementBlockSize = Float(value)
+                                    }
+                                    Text(
+                                        String(
+                                            format: "Thin wall · depth %.3fm",
+                                            Constants.collisionBlockThickness(forFaceSize: Float(blockSize))
+                                        )
+                                    )
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.85))
+                                }
+                                .padding(10)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 
                                 TimelineView(.periodic(from: .now, by: 0.2)) { _ in
                                     let count = rendererBox.renderer?.collisionBlocks.count ?? 0
@@ -221,6 +323,12 @@ struct MetalKitSceneView: View {
                                     isPlacingCollisionBlocks = false
                                     isSelectingCollisionBlocks = false
                                     isRecordingCollision = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
                                 }
 #if os(macOS)
                                 if enabled {
@@ -251,15 +359,126 @@ struct MetalKitSceneView: View {
                                 }
                             }
 
-                            Button("Mark Start Point") {
-                                rendererBox.renderer?.markStartPoint()
+                            Button(isSettingCameraAngles ? "Set Camera Angles: On" : "Set Camera Angles") {
+                                let enabled = !isSettingCameraAngles
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCollisionBlockPlacement(false)
+                                    rendererBox.renderer?.setCollisionBlockSelecting(false)
+                                    rendererBox.renderer?.setCollisionRecording(false)
+                                    rendererBox.renderer?.setClickCollisionRecording(false)
+                                    rendererBox.renderer?.setStairRecording(false)
+                                    rendererBox.renderer?.setStartPointMode(false)
+                                }
+                                rendererBox.renderer?.setCameraAnglesMode(enabled)
+                                isSettingCameraAngles = enabled
                             }
                             .buttonStyle(.borderedProminent)
+                            .tint(isSettingCameraAngles ? .cyan : .accentColor)
+
+                            if isSettingCameraAngles {
+                                Text("Look until level & straight · Save locks angles only (not start point)")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            Button(isSettingStartPoint ? "Start Point: On" : "Set Start Point") {
+                                let enabled = !isSettingStartPoint
+                                if enabled {
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    showMoveSpeedControls = false
+                                    pointClickMode = false
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setCollisionBlockPlacement(false)
+                                    rendererBox.renderer?.setCollisionBlockSelecting(false)
+                                    rendererBox.renderer?.setCollisionRecording(false)
+                                    rendererBox.renderer?.setClickCollisionRecording(false)
+                                    rendererBox.renderer?.setStairRecording(false)
+                                    rendererBox.renderer?.setCameraAnglesMode(false)
+                                }
+                                rendererBox.renderer?.setStartPointMode(enabled)
+                                isSettingStartPoint = enabled
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isSettingStartPoint ? .mint : .accentColor)
+
+                            if isSettingStartPoint {
+                                HStack(spacing: 8) {
+                                    Button("Up") {
+                                        rendererBox.renderer?.nudgeCameraHeight(Float(heightNudgeSensitivity))
+                                    }
+                                    .buttonStyle(.borderedProminent)
+
+                                    Button("Down") {
+                                        rendererBox.renderer?.nudgeCameraHeight(-Float(heightNudgeSensitivity))
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(String(format: "Height step · %.2f m", heightNudgeSensitivity))
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                    Slider(value: $heightNudgeSensitivity, in: 0.01...0.5, step: 0.01)
+                                        .frame(width: 180)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+
+                                Text("Walk to position · Up/Down height · keep mode On · then Save")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            Button(showMoveSpeedControls ? "Movement Speed: On" : "Movement Speed") {
+                                showMoveSpeedControls.toggle()
+                                if showMoveSpeedControls {
+                                    moveSpeedSlider = Double(rendererBox.renderer?.cameraMoveSpeed ?? Constants.cameraMoveSpeed)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(showMoveSpeedControls ? .yellow : .accentColor)
+
+                            if showMoveSpeedControls {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    NumericParamControl(
+                                        title: "Walk speed",
+                                        value: $moveSpeedSlider,
+                                        range: 0.001...12,
+                                        suffix: "m/s"
+                                    ) { value in
+                                        rendererBox.renderer?.cameraMoveSpeed = Float(value)
+                                    }
+                                }
+                                .padding(10)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
 
                             Button("Reset Collision") {
                                 isPlacingCollisionBlocks = false
                                 isSelectingCollisionBlocks = false
                                 isRecordingCollision = false
+                                isRecordingClickCollision = false
                                 rendererBox.renderer?.resetCollision()
                             }
                             .buttonStyle(.borderedProminent)
@@ -289,11 +508,22 @@ struct MetalKitSceneView: View {
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 8) {
                             Button("Save") {
+#if os(macOS)
+                                // Flush any in-progress text-field edits (speed, wall size, etc.).
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+#endif
+                                // Commit UI values before applying / serializing.
+                                rendererBox.renderer?.cameraMoveSpeed = Float(moveSpeedSlider)
+                                rendererBox.renderer?.placementBlockSize = Float(blockSize)
+                                rendererBox.renderer?.saveNavigation()
                                 isPlacingCollisionBlocks = false
                                 isSelectingCollisionBlocks = false
                                 isRecordingCollision = false
+                                isRecordingClickCollision = false
                                 isRecordingStairs = false
-                                rendererBox.renderer?.saveNavigation()
+                                isSettingCameraAngles = false
+                                isSettingStartPoint = false
+                                showMoveSpeedControls = false
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(.green)
@@ -312,7 +542,7 @@ struct MetalKitSceneView: View {
                             .padding(8)
                             .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 #elseif os(iOS)
-                        MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs)
+                        MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs || isSettingCameraAngles || isSettingStartPoint)
 #endif
                     }
                 }
@@ -350,8 +580,17 @@ struct MetalKitSceneView: View {
         if pointClickMode {
             return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
         }
+        if isSettingCameraAngles {
+            return "Set Camera Angles · look until level & facing straight · Save locks orientation only"
+        }
+        if isSettingStartPoint {
+            return "Set Start Point · walk into place · Up/Down for height · Save stores spawn pose"
+        }
         if isRecordingStairs {
             return "Mark Stairs · click corners · Q/E moves camera · need ≥3 · toggle off to append · Save to apply"
+        }
+        if isRecordingClickCollision {
+            return "Click Collision · click 3–4 surface corners · thin barrier only · 4th click (or toggle off at 3) · Save"
         }
         if isSelectingCollisionBlocks {
             return "Select · click a wall · drag to resize width/height · Delete removes it · right-click looks"
@@ -362,7 +601,22 @@ struct MetalKitSceneView: View {
         if isRecordingCollision {
             return "Walking Collision · walk the area · toggle off to append outline · walls stay visible · Save"
         }
-        return "Add Block / Walking Collision coexist · Save applies live · Download TXT exports nav.txt"
+        return "Add Block / Click Collision / Walking · Save applies live · Download TXT exports nav.txt"
+    }
+
+    private func clickCollisionHint(pointCount: Int, blockCount: Int) -> String {
+        switch pointCount {
+        case 0:
+            return "\(blockCount) barriers · click 3–4 corners (thin walls)"
+        case 1:
+            return "1/\(pointCount < 4 ? "3–4" : "4") · click next corner"
+        case 2:
+            return "2/3–4 · click next corner"
+        case 3:
+            return "3 points · click 4th or toggle off to create thin barrier"
+        default:
+            return "\(blockCount) barriers · click 3–4 corners for another"
+        }
     }
 
     private func stairMarkHint(pointCount: Int) -> String {
@@ -392,6 +646,11 @@ struct MetalKitSceneView: View {
     }
 
     private func downloadNavigationTXT() {
+#if os(macOS)
+        NSApp.keyWindow?.makeFirstResponder(nil)
+#endif
+        rendererBox.renderer?.cameraMoveSpeed = Float(moveSpeedSlider)
+        rendererBox.renderer?.placementBlockSize = Float(blockSize)
         guard let text = rendererBox.renderer?.navigationExportText() else { return }
 #if os(macOS)
         let panel = NSSavePanel()
@@ -631,6 +890,12 @@ final class CameraControlMTKView: MTKView {
             return
         }
 
+        if renderer?.isRecordingClickCollision == true {
+            setMouseLookActive(false)
+            _ = renderer?.markClickCollisionPoint(at: locationInView)
+            return
+        }
+
         if renderer?.isSelectingCollisionBlocks == true {
             setMouseLookActive(false)
             _ = renderer?.selectCollisionBlock(at: locationInView)
@@ -650,6 +915,7 @@ final class CameraControlMTKView: MTKView {
         window?.makeFirstResponder(self)
         // In place/select/stair mode, right-click toggles look so left-click can mark surfaces.
         if renderer?.isRecordingStairs == true
+            || renderer?.isRecordingClickCollision == true
             || renderer?.isPlacingCollisionBlocks == true
             || renderer?.isSelectingCollisionBlocks == true
             || renderer?.pointClickMode == true {
@@ -712,13 +978,16 @@ final class CameraControlMTKView: MTKView {
     private func applyMovementFromKeys() {
         guard let renderer else { return }
         let stairRecording = renderer.isRecordingStairs
+        let settingAngles = renderer.isSettingCameraAngles
+        let settingStart = renderer.isSettingStartPoint
+        let allowVertical = stairRecording || settingAngles || settingStart
         renderer.movement = .init(
             forward: pressedKeys.contains(KeyCode.w) || pressedKeys.contains(KeyCode.upArrow),
             backward: pressedKeys.contains(KeyCode.s) || pressedKeys.contains(KeyCode.downArrow),
             left: pressedKeys.contains(KeyCode.a) || pressedKeys.contains(KeyCode.leftArrow),
             right: pressedKeys.contains(KeyCode.d) || pressedKeys.contains(KeyCode.rightArrow),
-            up: stairRecording && pressedKeys.contains(KeyCode.q),
-            down: stairRecording && pressedKeys.contains(KeyCode.e)
+            up: allowVertical && pressedKeys.contains(KeyCode.q),
+            down: allowVertical && pressedKeys.contains(KeyCode.e)
         )
     }
 }
@@ -748,6 +1017,7 @@ final class CameraControlMTKView: MTKView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard renderer?.pointClickMode != true,
               renderer?.isRecordingStairs != true,
+              renderer?.isRecordingClickCollision != true,
               renderer?.isPlacingCollisionBlocks != true,
               renderer?.isSelectingCollisionBlocks != true else {
             // In select mode, drag resizes the selected wall.
@@ -794,6 +1064,11 @@ final class CameraControlMTKView: MTKView {
             return
         }
 
+        if renderer?.isRecordingClickCollision == true {
+            _ = renderer?.markClickCollisionPoint(at: location)
+            return
+        }
+
         if renderer?.isSelectingCollisionBlocks == true {
             _ = renderer?.selectCollisionBlock(at: location)
             return
@@ -814,5 +1089,99 @@ final class CameraControlMTKView: MTKView {
     }
 }
 #endif
+
+/// Slider + typed field for small float params (speed, block size, etc.).
+private struct NumericParamControl: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var suffix: String = ""
+    var step: Double = 0.001
+    let onCommit: (Double) -> Void
+
+    @State private var text: String = ""
+    @FocusState private var isEditing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                Spacer(minLength: 4)
+                TextField("", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 72)
+                    .multilineTextAlignment(.trailing)
+                    .focused($isEditing)
+                    .onSubmit { commitText() }
+#if os(macOS)
+                    .onExitCommand { commitText() }
+#endif
+                    .onChange(of: text) { _, newText in
+                        guard isEditing else { return }
+                        let cleaned = newText
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .replacingOccurrences(of: ",", with: ".")
+                        guard let parsed = Double(cleaned) else { return }
+                        let next = clamped(parsed)
+                        if abs(value - next) > 1e-9 {
+                            value = next
+                        }
+                        onCommit(next)
+                    }
+                if !suffix.isEmpty {
+                    Text(suffix)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 28, alignment: .leading)
+                }
+            }
+            Slider(value: $value, in: range, step: step)
+                .frame(width: 200)
+                .onChange(of: value) { _, newValue in
+                    if !isEditing {
+                        text = format(newValue)
+                    }
+                    onCommit(clamped(newValue))
+                }
+        }
+        .onAppear {
+            text = format(value)
+        }
+        .onChange(of: isEditing) { _, editing in
+            if !editing {
+                commitText()
+            }
+        }
+        .onChange(of: value) { _, newValue in
+            if !isEditing {
+                text = format(newValue)
+            }
+        }
+    }
+
+    private func clamped(_ raw: Double) -> Double {
+        min(range.upperBound, max(range.lowerBound, raw))
+    }
+
+    private func format(_ raw: Double) -> String {
+        String(format: "%.3f", raw)
+    }
+
+    private func commitText() {
+        let cleaned = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let parsed = Double(cleaned) else {
+            text = format(value)
+            return
+        }
+        let next = clamped(parsed)
+        value = next
+        text = format(next)
+        onCommit(next)
+    }
+}
 
 #endif // os(iOS) || os(macOS)

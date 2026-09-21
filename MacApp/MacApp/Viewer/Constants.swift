@@ -15,6 +15,34 @@ enum Constants {
     static let cameraPitchLimit: Float = .pi / 2 - 0.01
     /// Min distance between recorded walk samples while generating collision.
     static let collisionSampleSpacing: Float = 0.05
+    /// Default wall face length (local X), in meters.
+    static let collisionBlockWidth: Float = 1.6
+    /// Default wall thickness (local Z) — thin like a normal wall (~12 cm).
+    static let collisionBlockDepth: Float = 0.12
+    /// Depth is always this fraction of face size (capped by `collisionBlockDepth`) so walls never look like cubes.
+    static let collisionBlockDepthFraction: Float = 0.06
+    /// Default wall height ≈ standing character / eye height.
+    static let collisionBlockHeight: Float = 1.7
+
+    /// Thin wall depth for a given face size (width/height).
+    static func collisionBlockThickness(forFaceSize size: Float) -> Float {
+        let face = max(collisionBlockMinWidth, size)
+        let proportional = face * collisionBlockDepthFraction
+        return min(collisionBlockDepth, max(collisionBlockMinDepth, proportional))
+    }
+    static let collisionBlockMinWidth: Float = 0.001
+    static let collisionBlockMaxWidth: Float = 8.0
+    static let collisionBlockMinDepth: Float = 0.001
+    static let collisionBlockMinHeight: Float = 0.001
+    static let collisionBlockMaxHeight: Float = 4.0
+    static let collisionBlockMaxDepth: Float = 4.0
+    /// How close a click must be to an existing wall face to snap / auto-connect.
+    static let collisionBlockSnapDistance: Float = 0.45
+    /// Camera collision radius against solid blocks.
+    /// Kept small: splat scenes are often sub‑meter; 0.22 was fattening thin walls into near-cubes.
+    static let collisionBlockPlayerRadius: Float = 0.04
+    /// Mouse pixels → meters while resizing a selected wall.
+    static let collisionBlockResizeSensitivity: Float = 0.012
     /// Vertical climb/descend speed (Q/E) while marking stair vertices.
     static let stairRecordClimbSpeed: Float = 1.5
     /// How far outside the stair polygon still counts as on-stairs.
