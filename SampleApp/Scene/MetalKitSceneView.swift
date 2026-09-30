@@ -35,6 +35,7 @@ struct MetalKitSceneView: View {
     @State private var showMoveSpeedControls = false
     @State private var moveSpeedSlider: Double = Double(Constants.cameraMoveSpeed)
     @State private var heightNudgeSensitivity: Double = 0.05
+    @State private var cameraRotateSensitivity: Double = 90
     @State private var blockSize: Double = Double(Constants.collisionBlockWidth)
 
     private var isCollisionModeActive: Bool {
@@ -385,12 +386,39 @@ struct MetalKitSceneView: View {
                             .tint(isSettingCameraAngles ? .cyan : .accentColor)
 
                             if isSettingCameraAngles {
-                                Text("Look until level & straight · Save locks angles only (not start point)")
+                                Text("Look until level & straight · Rotate if upside-down · Save locks angles only")
                                     .font(.caption)
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 6)
                                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+
+                                HStack(spacing: 8) {
+                                    Button("Rotate −") {
+                                        rendererBox.renderer?.rotateCameraView(
+                                            degrees: -Float(cameraRotateSensitivity)
+                                        )
+                                    }
+                                    .buttonStyle(.borderedProminent)
+
+                                    Button("Rotate +") {
+                                        rendererBox.renderer?.rotateCameraView(
+                                            degrees: Float(cameraRotateSensitivity)
+                                        )
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(String(format: "Rotate step · %.0f°", cameraRotateSensitivity))
+                                        .font(.caption)
+                                        .foregroundStyle(.white)
+                                    Slider(value: $cameraRotateSensitivity, in: 1...180, step: 1)
+                                        .frame(width: 180)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
                             }
 
                             Button(isSettingStartPoint ? "Start Point: On" : "Set Start Point") {
@@ -581,7 +609,7 @@ struct MetalKitSceneView: View {
             return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
         }
         if isSettingCameraAngles {
-            return "Set Camera Angles · look until level & facing straight · Save locks orientation only"
+            return "Set Camera Angles · look until level · Rotate ± with step slider if inverted · Save locks orientation"
         }
         if isSettingStartPoint {
             return "Set Start Point · walk into place · Up/Down for height · Save stores spawn pose"

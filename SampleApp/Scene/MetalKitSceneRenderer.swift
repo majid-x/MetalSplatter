@@ -360,6 +360,58 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         isSettingStartPoint = enabled
     }
 
+    /// Roll the view around the look axis by `degrees` (positive = clockwise while looking forward).
+    /// Used in Set Camera Angles to correct inverted / tilted splat orientations.
+    func rotateCameraView(degrees: Float) {
+        guard abs(degrees) > 1e-4 else { return }
+        ensureCustomOrientationFromCurrentView()
+        let radians = degrees * .pi / 180
+        let axis = cameraForward
+        let axisLen = simd_length(axis)
+        guard axisLen > 1e-5 else { return }
+        let k = axis / axisLen
+        navigationUp = simd_normalize(Self.rotate(navigationUp, around: k, by: radians))
+        var forward = Self.rotate(navigationForward, around: k, by: radians)
+        forward -= simd_dot(forward, navigationUp) * navigationUp
+        let forwardLen = simd_length(forward)
+        guard forwardLen > 1e-5 else { return }
+        navigationForward = forward / forwardLen
+        usesCustomOrientation = true
+        lastViewMatrix = viewMatrix
+    }
+
+    /// Bake the current view (including legacy splat calibration) into the navigation frame
+    /// so subsequent rolls / looks operate in a consistent custom orientation.
+    private func ensureCustomOrientationFromCurrentView() {
+        guard !usesCustomOrientation else { return }
+        let inv = viewMatrix.inverse
+        var up = SIMD3(inv.columns.1.x, inv.columns.1.y, inv.columns.1.z)
+        var forward = -SIMD3(inv.columns.2.x, inv.columns.2.y, inv.columns.2.z)
+        let upLen = simd_length(up)
+        guard upLen > 1e-5 else { return }
+        up /= upLen
+        forward = forward - simd_dot(forward, up) * up
+        let forwardLen = simd_length(forward)
+        guard forwardLen > 1e-5 else { return }
+        navigationUp = up
+        navigationForward = forward / forwardLen
+        usesCustomOrientation = true
+        cameraYaw = 0
+        cameraPitch = 0
+    }
+
+    private static func rotate(
+        _ vector: SIMD3<Float>,
+        around axis: SIMD3<Float>,
+        by radians: Float
+    ) -> SIMD3<Float> {
+        let c = cos(radians)
+        let s = sin(radians)
+        return vector * c
+            + simd_cross(axis, vector) * s
+            + axis * simd_dot(axis, vector) * (1 - c)
+    }
+
     /// Nudge standing height along the navigation up axis (start-point authoring).
     func nudgeCameraHeight(_ deltaMeters: Float) {
         cameraPosition += navigationUp * deltaMeters
