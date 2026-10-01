@@ -34,7 +34,8 @@ final class ProceduralSplatController: @unchecked Sendable {
                                           depthFormat: depthFormat,
                                           sampleCount: sampleCount,
                                           maxViewCount: maxViewCount,
-                                          maxSimultaneousRenders: maxSimultaneousRenders)
+                                          maxSimultaneousRenders: maxSimultaneousRenders,
+                                          highQualityDepth: false)
 
         // Generate cube centers at 120° intervals in the XZ plane
         let centers: [SIMD3<Float>] = (0..<3).map { i in

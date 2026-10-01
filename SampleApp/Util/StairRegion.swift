@@ -17,25 +17,25 @@ enum SplatNavigationSpace {
     }
 }
 
-/// Closed XZ polygon with per-vertex heights (navigation / camera space).
-/// Raw pick heights are remapped so the low end = ground and the high end = ground + rise.
+/// Closed XZ polygon with per-vertex heights from `nav.txt` (navigation / camera space).
+/// Heights come from the authored stair vertices — nothing is remapped onto a hardcoded ground.
 struct StairRegion {
     /// Polygon vertices in navigation space (Y is stair height at that corner).
     let vertices: [SIMD3<Float>]
-    /// Plane: heightY = ax + cz + d (raw pick / surface space)
+    /// Plane: heightY = ax + cz + d from nav vertices
     private let planeA: Float
     private let planeC: Float
     private let planeD: Float
-    /// Lowest / highest raw vertex Y on the marked stair.
+    /// Lowest / highest vertex Y on the stair (from nav.txt).
     private let rawMinY: Float
     private let rawMaxY: Float
     /// Extra margin so walking near an edge still counts as on the stair.
     private let edgePadding: Float
 
-    /// Camera Y at the bottom of the stairs (normal ground).
-    var lowerFloorY: Float { Constants.cameraGroundY }
-    /// Camera Y at the top of the stairs (ground + measured rise).
-    var upperFloorY: Float { Constants.cameraGroundY + max(0, rawMaxY - rawMinY) }
+    /// Camera height at the bottom of the stairs (from nav vertices).
+    var lowerFloorY: Float { rawMinY }
+    /// Camera height at the top of the stairs (from nav vertices).
+    var upperFloorY: Float { rawMaxY }
 
     static func parse(_ text: String, edgePadding: Float = Constants.stairEdgePadding) -> StairRegion? {
         var vertices: [SIMD3<Float>] = []
@@ -79,14 +79,10 @@ struct StairRegion {
         return distanceToBoundary(xz) <= edgePadding
     }
 
-    /// Remapped walking height: bottom → normal ground, top → normal upper floor.
+    /// Walking height from the stair plane in nav.txt (absolute Y, not remapped).
     func navigationHeight(at position: SIMD3<Float>) -> Float? {
         guard contains(position) else { return nil }
-        let raw = planeA * position.x + planeC * position.z + planeD
-        let rise = rawMaxY - rawMinY
-        guard rise > 1e-4 else { return lowerFloorY }
-        let t = max(0, min(1, (raw - rawMinY) / rise))
-        return lowerFloorY + t * (upperFloorY - lowerFloorY)
+        return planeA * position.x + planeC * position.z + planeD
     }
 
     /// Snap an off-stair standing height to the nearer floor level.

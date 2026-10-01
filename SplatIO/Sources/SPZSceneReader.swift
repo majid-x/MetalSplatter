@@ -4,9 +4,18 @@ import spz
 
 /// A reader for Gaussian Splat files in the SPZ format
 public class SPZSceneReader: SplatSceneReader {
-    public enum Error: Swift.Error {
+    public enum Error: Swift.Error, LocalizedError {
         case cannotOpenSource(URL)
         case readError(Swift.Error)
+
+        public var errorDescription: String? {
+            switch self {
+            case .cannotOpenSource(let url):
+                return "Couldn't open SPZ file at \(url.lastPathComponent)."
+            case .readError(let underlying):
+                return underlying.localizedDescription
+            }
+        }
     }
 
     public enum Constants {

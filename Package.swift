@@ -33,7 +33,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
-        .package(url: "https://github.com/scier/spz-swift.git", from: "2.1.0"),
+        .package(path: "Vendor/spz-swift"),
     ],
     targets: [
         .target(

@@ -130,6 +130,55 @@ final class CollisionBlockRenderer {
         indexBuffer = ib
     }
 
+    /// Draw solid markers at positions in the same space as `viewProjection` expects (model/depth space).
+    func drawMarkers(
+        atModelPositions positions: [SIMD3<Float>],
+        size: Float,
+        color: SIMD4<Float>,
+        viewProjection: matrix_float4x4,
+        colorTexture: MTLTexture,
+        depthTexture: MTLTexture?,
+        to commandBuffer: MTLCommandBuffer
+    ) {
+        guard !positions.isEmpty, size > 0 else { return }
+
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = colorTexture
+        descriptor.colorAttachments[0].loadAction = .load
+        descriptor.colorAttachments[0].storeAction = .store
+        if let depthTexture {
+            descriptor.depthAttachment.texture = depthTexture
+            descriptor.depthAttachment.loadAction = .load
+            descriptor.depthAttachment.storeAction = .store
+        }
+
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
+        encoder.label = "Pick Markers"
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setDepthStencilState(depthState)
+        encoder.setCullMode(.none)
+        encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+
+        let scale = matrix_float4x4(diagonal: SIMD4(size, size, size, 1))
+        for position in positions {
+            let translation = matrix4x4_translation(position.x, position.y, position.z)
+            var uniforms = Uniforms(
+                modelViewProjection: viewProjection * translation * scale,
+                color: color
+            )
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+            encoder.drawIndexedPrimitives(
+                type: .triangle,
+                indexCount: indexCount,
+                indexType: .uint16,
+                indexBuffer: indexBuffer,
+                indexBufferOffset: 0
+            )
+        }
+
+        encoder.endEncoding()
+    }
+
     func draw(
         blocks: [CollisionBlock],
         preview: CollisionBlock?,

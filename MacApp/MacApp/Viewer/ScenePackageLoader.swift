@@ -18,61 +18,50 @@ enum ScenePackageLoader {
         var errorDescription: String? {
             switch self {
             case .unsupportedType:
-                return "Choose a .zip scene package or a .ply / .splat / .spz file"
+                return "This file type isn't supported. Use a project package or a .ply / .splat / .spz file."
             case .unzipFailed:
-                return "Could not unzip the scene package"
-            case .unzipFailedDetail(let detail):
-                return "Could not unzip the scene package: \(detail)"
+                return "Couldn't open the project package. Try downloading again."
+            case .unzipFailedDetail:
+                return "Couldn't open the project package. Try downloading again."
             case .insufficientDiskSpace(let needed, let available):
                 let needMB = max(1, needed / (1024 * 1024))
                 let availMB = max(0, available / (1024 * 1024))
-                return "Not enough disk space to unpack the scene (need ~\(needMB) MB free, only \(availMB) MB available)"
+                return "Not enough storage to open this project (need about \(needMB) MB, \(availMB) MB free)."
             case .missingModel:
-                return "No .ply / .splat / .spz found in the package"
-            case .invalidNavigation(let message):
-                return "Invalid nav.txt: \(message)"
+                return "This project package doesn't include a 3D scene file."
+            case .invalidNavigation:
+                return "This project's navigation data couldn't be read."
             }
         }
     }
 
     private static let modelExtensions: Set<String> = ["ply", "splat", "spz"]
 
-    static func load(from url: URL) throws -> Contents {
+    static func load(from url: URL, extractDirectory: URL? = nil) throws -> Contents {
         let ext = url.pathExtension.lowercased()
         if ext == "zip" {
-            return try loadZip(url)
+            return try loadZip(url, extractDirectory: extractDirectory)
         }
         if modelExtensions.contains(ext) {
-            let nav = try loadSiblingNavigation(nextTo: url)
-            return Contents(modelURL: url, navigation: nav)
+            // Loose model files open as-is — never look for a sibling nav.txt.
+            return Contents(modelURL: url, navigation: nil)
         }
         throw LoadError.unsupportedType
     }
 
-    private static func loadSiblingNavigation(nextTo modelURL: URL) throws -> SceneNavigationData? {
-        let folder = modelURL.deletingLastPathComponent()
-        let candidates = ["nav.txt", "navigation.txt", "scene-nav.txt"]
-        for name in candidates {
-            let navURL = folder.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: navURL.path) else { continue }
-            let text = try String(contentsOf: navURL, encoding: .utf8)
-            do {
-                return try SceneNavigationData.parse(text)
-            } catch {
-                throw LoadError.invalidNavigation(error.localizedDescription)
-            }
-        }
-        return nil
-    }
-
-    private static func loadZip(_ zipURL: URL) throws -> Contents {
+    private static func loadZip(_ zipURL: URL, extractDirectory: URL? = nil) throws -> Contents {
         let fm = FileManager.default
-        // Prefer Caches over /tmp — same volume usually, but a stable path we can reuse.
-        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? fm.temporaryDirectory
-        let dest = caches
-            .appendingPathComponent("MetalSplatterScenes", isDirectory: true)
-            .appendingPathComponent(packageCacheKey(for: zipURL), isDirectory: true)
+        let dest: URL
+        if let extractDirectory {
+            dest = extractDirectory
+        } else {
+            // Prefer Caches over /tmp — same volume usually, but a stable path we can reuse.
+            let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+                ?? fm.temporaryDirectory
+            dest = caches
+                .appendingPathComponent("MetalSplatterScenes", isDirectory: true)
+                .appendingPathComponent(packageCacheKey(for: zipURL), isDirectory: true)
+        }
 
         if let modelURL = firstModel(in: dest), fm.fileExists(atPath: modelURL.path) {
             let navigation: SceneNavigationData?
@@ -169,30 +158,13 @@ enum ScenePackageLoader {
     }
 
     private static func unzip(_ zipURL: URL, to destination: URL) throws {
-#if os(macOS)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", zipURL.path, destination.path]
-        let err = Pipe()
-        process.standardError = err
         do {
-            try process.run()
+            try SandboxedZipExtractor.extract(zipURL: zipURL, to: destination)
+        } catch let error as SandboxedZipExtractor.Error {
+            throw LoadError.unzipFailedDetail(error.localizedDescription)
         } catch {
             throw LoadError.unzipFailedDetail(error.localizedDescription)
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let data = err.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let message, !message.isEmpty {
-                throw LoadError.unzipFailedDetail(message)
-            }
-            throw LoadError.unzipFailed
-        }
-#else
-        throw LoadError.unzipFailed
-#endif
     }
 
     static var importContentTypes: [UTType] {

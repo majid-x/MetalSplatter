@@ -1,4 +1,15 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
+
+#if os(macOS)
+private typealias AuthTextContentType = NSTextContentType
+#else
+private typealias AuthTextContentType = UITextContentType
+#endif
 
 struct ContentView: View {
     @Environment(AuthManager.self) private var authManager
@@ -150,7 +161,9 @@ private struct AuthView: View {
                                 isValid: !attemptedSubmit || nameValid,
                                 focus: $focusedField,
                                 field: .fullName,
-                                contentType: .name
+                                contentType: .name,
+                                submitLabel: .next,
+                                onSubmit: { focusedField = .email }
                             )
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .move(edge: .top)),
@@ -165,7 +178,9 @@ private struct AuthView: View {
                             isValid: !attemptedSubmit || emailValid,
                             focus: $focusedField,
                             field: .email,
-                            contentType: .username
+                            contentType: .username,
+                            submitLabel: .next,
+                            onSubmit: { focusedField = .password }
                         )
 
                         GlassPillField(
@@ -175,7 +190,15 @@ private struct AuthView: View {
                             isValid: !attemptedSubmit || passwordValid,
                             focus: $focusedField,
                             field: .password,
-                            contentType: mode == .signUp ? .newPassword : .password
+                            contentType: mode == .signUp ? .newPassword : .password,
+                            submitLabel: mode == .signUp ? .next : .go,
+                            onSubmit: {
+                                if mode == .signUp {
+                                    focusedField = .confirm
+                                } else {
+                                    Task { await submit() }
+                                }
+                            }
                         )
 
                         if mode == .signUp {
@@ -186,7 +209,9 @@ private struct AuthView: View {
                                 isValid: !attemptedSubmit || confirmValid,
                                 focus: $focusedField,
                                 field: .confirm,
-                                contentType: .newPassword
+                                contentType: .newPassword,
+                                submitLabel: .go,
+                                onSubmit: { Task { await submit() } }
                             )
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .move(edge: .top)),
@@ -345,7 +370,9 @@ private struct GlassPillField: View {
     var isValid: Bool
     var focus: FocusState<AuthFieldFocus?>.Binding
     var field: AuthFieldFocus
-    var contentType: NSTextContentType? = nil
+    var contentType: AuthTextContentType? = nil
+    var submitLabel: SubmitLabel = .next
+    var onSubmit: () -> Void = {}
 
     @State private var reveal = false
 
@@ -363,6 +390,8 @@ private struct GlassPillField: View {
             .foregroundStyle(.white.opacity(0.92))
             .focused(focus, equals: field)
             .textContentType(contentType)
+            .submitLabel(submitLabel)
+            .onSubmit(onSubmit)
 
             if isSecure {
                 Button {

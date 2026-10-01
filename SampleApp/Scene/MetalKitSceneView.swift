@@ -3,6 +3,7 @@
 import SwiftUI
 import MetalKit
 import UniformTypeIdentifiers
+import Darwin
 
 #if os(macOS)
 import AppKit
@@ -18,8 +19,17 @@ struct MetalKitSceneView: View {
     @State private var rendererBox = RendererBox()
     @State private var pointClickMode = false
     @State private var pointClickStatus = "Point Click off"
+    @State private var measureMode = false
+    @State private var measureStatus = "Measure off"
+    @State private var measureLabelOverlays: [MetalKitSceneRenderer.MeasureLabelOverlay] = []
+    @State private var measureCalibrationFactor: Float = 1.0
+    @State private var lastRawSegmentMeters: Float?
+    @State private var actualLengthCmText = ""
     @State private var searchedPhotos: [PhotoSearchResult] = []
     @State private var isPhotoSearching = false
+    @State private var hasMorePhotos = false
+    @State private var isFetchingMorePhotos = false
+    @State private var photoSearchUsesSPZCoordinates = false
     @State private var showPhotoPanel = false
     @State private var isPlacingCollisionBlocks = false
     @State private var isSelectingCollisionBlocks = false
@@ -56,12 +66,33 @@ struct MetalKitSceneView: View {
                         pointClickStatus = rendererBox.renderer?.pointClickStatus ?? "Point Click off"
                         searchedPhotos = rendererBox.renderer?.searchedPhotos ?? []
                         isPhotoSearching = rendererBox.renderer?.isPhotoSearching ?? false
+                        hasMorePhotos = rendererBox.renderer?.hasMorePhotos ?? false
+                        isFetchingMorePhotos = rendererBox.renderer?.isFetchingMorePhotos ?? false
+                        photoSearchUsesSPZCoordinates = rendererBox.renderer?.photoSearchUsesSPZCoordinates ?? false
                         if isPhotoSearching || !searchedPhotos.isEmpty {
                             showPhotoPanel = true
                         }
+                    },
+                    onMeasureStateChanged: {
+                        measureMode = rendererBox.renderer?.measureMode ?? false
+                        measureStatus = rendererBox.renderer?.measureStatus ?? "Measure off"
+                        measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                        measureCalibrationFactor = rendererBox.renderer?.measureCalibrationFactor ?? 1.0
+                        lastRawSegmentMeters = rendererBox.renderer?.lastRawSegmentMeters
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                ForEach(measureLabelOverlays) { label in
+                    Text(label.text)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color(red: 0.2, green: 0.95, blue: 1.0))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .position(label.viewPoint)
+                        .allowsHitTesting(false)
+                }
 
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top, spacing: 12) {
@@ -72,6 +103,7 @@ struct MetalKitSceneView: View {
                                 rendererBox.cameraView?.setMouseLookActive(false)
 #endif
                                 if enabled {
+                                    measureMode = false
                                     isPlacingCollisionBlocks = false
                                     isSelectingCollisionBlocks = false
                                     isRecordingCollision = false
@@ -88,10 +120,117 @@ struct MetalKitSceneView: View {
                                     showPhotoPanel = false
                                     searchedPhotos = []
                                     isPhotoSearching = false
+                                    hasMorePhotos = false
+                                    isFetchingMorePhotos = false
                                 }
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(pointClickMode ? .orange : .accentColor)
+
+                            Button(measureMode ? "Measure: On" : "Measure / Calibrate") {
+                                let enabled = !measureMode
+#if os(macOS)
+                                rendererBox.cameraView?.setMouseLookActive(false)
+#endif
+                                if enabled {
+                                    pointClickMode = false
+                                    showPhotoPanel = false
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
+                                }
+                                rendererBox.renderer?.setMeasureMode(enabled)
+                                measureMode = enabled
+                                measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                                measureCalibrationFactor = rendererBox.renderer?.measureCalibrationFactor ?? 1.0
+                                lastRawSegmentMeters = rendererBox.renderer?.lastRawSegmentMeters
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(measureMode ? Color(red: 0.2, green: 0.85, blue: 0.95) : .accentColor)
+
+                            if measureMode || measureStatus != "Measure off" {
+                                Text(measureStatus)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            if measureMode {
+                                HStack(spacing: 8) {
+                                    Button("Undo") {
+                                        _ = rendererBox.renderer?.undoMeasurePoint()
+                                        measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                        measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                                        lastRawSegmentMeters = rendererBox.renderer?.lastRawSegmentMeters
+                                    }
+                                    Button("Clear") {
+                                        rendererBox.renderer?.clearMeasureGeometry()
+                                        measureLabelOverlays = []
+                                        lastRawSegmentMeters = nil
+                                        measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                    }
+                                    Button("Reset Factor") {
+                                        rendererBox.renderer?.resetMeasureCalibration()
+                                        measureCalibrationFactor = rendererBox.renderer?.measureCalibrationFactor ?? 1.0
+                                        measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                        measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                                    }
+                                }
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    if let raw = lastRawSegmentMeters {
+                                        Text(String(format: "Raw length: %.2f cm", raw * 100))
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.white)
+                                    } else {
+                                        Text("Click both ends of a known length")
+                                            .font(.caption)
+                                            .foregroundStyle(.white.opacity(0.85))
+                                    }
+
+                                    HStack(spacing: 8) {
+                                        TextField("Actual cm", text: $actualLengthCmText)
+                                            .textFieldStyle(.roundedBorder)
+                                            .frame(width: 100)
+#if os(iOS)
+                                            .keyboardType(.decimalPad)
+#endif
+                                        Button("Calibrate") {
+                                            let cleaned = actualLengthCmText
+                                                .replacingOccurrences(of: ",", with: ".")
+                                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                            guard let cm = Float(cleaned) else { return }
+                                            if let factor = rendererBox.renderer?.calibrateMeasure(actualCentimeters: cm) {
+                                                measureCalibrationFactor = factor
+                                            }
+                                            measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                            measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(.green)
+                                        .disabled(lastRawSegmentMeters == nil)
+                                    }
+
+                                    Text(String(format: "Calibration factor: %.8f", measureCalibrationFactor))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(Color(red: 0.45, green: 1.0, blue: 0.55))
+                                        .textSelection(.enabled)
+
+                                    Text("Save this factor in the DB for MacApp.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                                .padding(10)
+                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
 
                             if pointClickMode || pointClickStatus != "Point Click off" {
                                 Text(pointClickStatus)
@@ -100,6 +239,24 @@ struct MetalKitSceneView: View {
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 8)
                                     .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            if pointClickMode {
+                                Toggle(isOn: Binding(
+                                    get: { photoSearchUsesSPZCoordinates },
+                                    set: { enabled in
+                                        photoSearchUsesSPZCoordinates = enabled
+                                        rendererBox.renderer?.setPhotoSearchUsesSPZCoordinates(enabled)
+                                    }
+                                )) {
+                                    Text("SPZ coordinates")
+                                        .font(.caption)
+                                }
+                                .toggleStyle(.switch)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                .help("SPZ files are often inverted vs PLY. Turn on so photo search skips the PLY axis undo.")
                             }
 
                             Button(isPlacingCollisionBlocks ? "Adding Block…" : "Add Block Collision") {
@@ -113,7 +270,9 @@ struct MetalKitSceneView: View {
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
                                     pointClickMode = false
+                                    measureMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
+                                    rendererBox.renderer?.setMeasureMode(false)
                                     rendererBox.renderer?.setCameraAnglesMode(false)
                                     rendererBox.renderer?.setStartPointMode(false)
                                     if let renderer = rendererBox.renderer {
@@ -520,14 +679,25 @@ struct MetalKitSceneView: View {
 
                         Spacer(minLength: 0)
 
-                        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                            Text(cameraDebugText)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.trailing)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            VStack(alignment: .trailing, spacing: 6) {
+                                if modelIdentifier != nil {
+                                    Text(memoryUsageText)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                                }
+
+                                Text(cameraDebugText)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .multilineTextAlignment(.trailing)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
                         }
                     }
 
@@ -583,12 +753,22 @@ struct MetalKitSceneView: View {
                 PhotoSearchSidePanel(
                     photos: searchedPhotos,
                     isLoading: isPhotoSearching,
+                    isFetchingMore: isFetchingMorePhotos,
+                    hasMore: hasMorePhotos,
                     statusText: pointClickStatus,
+                    apiBaseURL: PhotoSearchAPI.baseURL,
                     onClose: {
                         showPhotoPanel = false
                         rendererBox.renderer?.clearPhotoSearch()
                         searchedPhotos = []
                         isPhotoSearching = false
+                        hasMorePhotos = false
+                        isFetchingMorePhotos = false
+                    },
+                    onFetchMore: {
+                        rendererBox.renderer?.fetchMorePhotos()
+                        isFetchingMorePhotos = rendererBox.renderer?.isFetchingMorePhotos ?? true
+                        hasMorePhotos = rendererBox.renderer?.hasMorePhotos ?? hasMorePhotos
                     }
                 )
             }
@@ -671,6 +851,21 @@ struct MetalKitSceneView: View {
             format: "cam xyz: %.3f, %.3f, %.3f\nyaw: %.1f°  pitch: %.1f°",
             p.x, p.y, p.z, yawDeg, pitchDeg
         )
+    }
+
+    private var memoryUsageText: String {
+        guard let bytes = ProcessMemory.physFootprintBytes() else {
+            return "mem: —"
+        }
+        return "mem: \(Self.formatBytes(bytes))"
+    }
+
+    private static func formatBytes(_ bytes: UInt64) -> String {
+        let mb = Double(bytes) / (1024 * 1024)
+        if mb >= 1024 {
+            return String(format: "%.2f GB", mb / 1024)
+        }
+        return String(format: "%.0f MB", mb)
     }
 
     private func downloadNavigationTXT() {
@@ -777,6 +972,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
     var modelIdentifier: ModelIdentifier?
     var rendererBox: RendererBox
     var onPointClickStateChanged: () -> Void
+    var onMeasureStateChanged: () -> Void
 
     final class Coordinator {
         var renderer: MetalKitSceneRenderer?
@@ -797,6 +993,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
         rendererBox.renderer = context.coordinator.renderer
         rendererBox.cameraView = view
         context.coordinator.renderer?.onPointClickStateChanged = onPointClickStateChanged
+        context.coordinator.renderer?.onMeasureStateChanged = onMeasureStateChanged
     }
 #elseif os(iOS)
     func makeUIView(context: Context) -> CameraControlMTKView {
@@ -808,6 +1005,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
         view.renderer = context.coordinator.renderer
         rendererBox.renderer = context.coordinator.renderer
         context.coordinator.renderer?.onPointClickStateChanged = onPointClickStateChanged
+        context.coordinator.renderer?.onMeasureStateChanged = onMeasureStateChanged
     }
 #endif
 
@@ -826,6 +1024,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
         rendererBox.cameraView = metalKitView
 #endif
         renderer?.onPointClickStateChanged = onPointClickStateChanged
+        renderer?.onMeasureStateChanged = onMeasureStateChanged
 
         Task {
             do {
@@ -906,6 +1105,12 @@ final class CameraControlMTKView: MTKView {
         window?.makeFirstResponder(self)
         let locationInView = convert(event.locationInWindow, from: nil)
 
+        if renderer?.measureMode == true {
+            setMouseLookActive(false)
+            renderer?.handleMeasureClick(at: locationInView)
+            return
+        }
+
         if renderer?.pointClickMode == true {
             setMouseLookActive(false)
             renderer?.handlePointClick(at: locationInView)
@@ -942,6 +1147,10 @@ final class CameraControlMTKView: MTKView {
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         // In place/select/stair mode, right-click toggles look so left-click can mark surfaces.
+        if renderer?.measureMode == true {
+            setMouseLookActive(false)
+            return
+        }
         if renderer?.isRecordingStairs == true
             || renderer?.isRecordingClickCollision == true
             || renderer?.isPlacingCollisionBlocks == true
@@ -958,22 +1167,38 @@ final class CameraControlMTKView: MTKView {
             renderer?.resizeSelectedCollisionBlock(deltaX: event.deltaX, deltaY: event.deltaY)
             return
         }
-        guard isMouseLookActive, renderer?.pointClickMode != true else { return }
+        guard isMouseLookActive,
+              renderer?.pointClickMode != true,
+              renderer?.measureMode != true else { return }
         renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
     }
 
     override func mouseMoved(with event: NSEvent) {
+        if renderer?.measureMode == true {
+            if isMouseLookActive { setMouseLookActive(false) }
+            let locationInView = convert(event.locationInWindow, from: nil)
+            renderer?.updateMeasureHover(at: locationInView)
+            return
+        }
         if renderer?.isPlacingCollisionBlocks == true, !isMouseLookActive {
             let locationInView = convert(event.locationInWindow, from: nil)
             renderer?.updateCollisionBlockPreview(at: locationInView)
         }
-        guard isMouseLookActive, renderer?.pointClickMode != true else { return }
+        guard isMouseLookActive,
+              renderer?.pointClickMode != true,
+              renderer?.measureMode != true else { return }
         renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
     }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.escape {
             setMouseLookActive(false)
+            return
+        }
+        if renderer?.measureMode == true,
+           event.charactersIgnoringModifiers == "z",
+           event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control) {
+            _ = renderer?.undoMeasurePoint()
             return
         }
         // Forward Delete / Backspace removes the selected wall.
@@ -1209,6 +1434,23 @@ private struct NumericParamControl: View {
         value = next
         text = format(next)
         onCommit(next)
+    }
+}
+
+/// Process physical memory footprint (what Activity Monitor roughly shows as Memory).
+private enum ProcessMemory {
+    static func physFootprintBytes() -> UInt64? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let kr = withUnsafeMutablePointer(to: &info) { infoPtr in
+            infoPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), intPtr, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return nil }
+        return info.phys_footprint
     }
 }
 

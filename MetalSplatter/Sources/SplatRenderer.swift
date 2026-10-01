@@ -186,6 +186,12 @@ public final class SplatRenderer: @unchecked Sendable {
         var singleStagePipelineState: MTLRenderPipelineState?
         var singleStageDepthState: MTLDepthStencilState?
 
+        // PlayCanvas-style alpha-clipped pick depth pass
+        var pickPipelineState: MTLRenderPipelineState?
+        var pickDepthState: MTLDepthStencilState?
+        var pickColorFormat: MTLPixelFormat = .r8Unorm
+        var pickDepthFormat: MTLPixelFormat = .depth32Float
+
         // Multi-stage pipeline
         var initializePipelineState: MTLRenderPipelineState?
         var drawSplatPipelineState: MTLRenderPipelineState?
@@ -479,6 +485,7 @@ public final class SplatRenderer: @unchecked Sendable {
 
     private func resetPipelineStates() {
         renderState.singleStagePipelineState = nil
+        renderState.pickPipelineState = nil
         renderState.initializePipelineState = nil
         renderState.drawSplatPipelineState = nil
         renderState.drawSplatDepthState = nil
@@ -491,6 +498,24 @@ public final class SplatRenderer: @unchecked Sendable {
 
         renderState.singleStagePipelineState = try buildSingleStagePipelineState()
         renderState.singleStageDepthState = try buildSingleStageDepthState()
+    }
+
+    private func buildPickPipelineStatesIfNeeded(
+        colorFormat: MTLPixelFormat,
+        depthFormat: MTLPixelFormat
+    ) throws {
+        if renderState.pickPipelineState != nil,
+           renderState.pickColorFormat == colorFormat,
+           renderState.pickDepthFormat == depthFormat {
+            return
+        }
+        renderState.pickColorFormat = colorFormat
+        renderState.pickDepthFormat = depthFormat
+        renderState.pickPipelineState = try buildPickPipelineState(
+            colorFormat: colorFormat,
+            depthFormat: depthFormat
+        )
+        renderState.pickDepthState = try buildPickDepthState()
     }
 
     private func buildMultiStagePipelineStatesIfNeeded() throws {
@@ -538,6 +563,34 @@ public final class SplatRenderer: @unchecked Sendable {
         let depthStateDescriptor = MTLDepthStencilDescriptor()
         depthStateDescriptor.depthCompareFunction = MTLCompareFunction.always
         depthStateDescriptor.isDepthWriteEnabled = writeDepth
+        return device.makeDepthStencilState(descriptor: depthStateDescriptor)!
+    }
+
+    private func buildPickPipelineState(
+        colorFormat: MTLPixelFormat,
+        depthFormat: MTLPixelFormat
+    ) throws -> MTLRenderPipelineState {
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+        pipelineDescriptor.label = "PickDepthPipeline"
+        pipelineDescriptor.vertexFunction = library.makeRequiredFunction(name: "singleStageSplatVertexShader")
+        pipelineDescriptor.fragmentFunction = library.makeRequiredFunction(name: "pickSplatFragmentShader")
+        pipelineDescriptor.rasterSampleCount = 1
+
+        let colorAttachment = pipelineDescriptor.colorAttachments[0]!
+        colorAttachment.pixelFormat = colorFormat
+        colorAttachment.isBlendingEnabled = false
+        pipelineDescriptor.colorAttachments[0] = colorAttachment
+        pipelineDescriptor.depthAttachmentPixelFormat = depthFormat
+        pipelineDescriptor.maxVertexAmplificationCount = maxViewCount
+
+        return try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+    }
+
+    private func buildPickDepthState() throws -> MTLDepthStencilState {
+        let depthStateDescriptor = MTLDepthStencilDescriptor()
+        // Front-most opaque fragment wins (PlayCanvas pick depth).
+        depthStateDescriptor.depthCompareFunction = .lessEqual
+        depthStateDescriptor.isDepthWriteEnabled = true
         return device.makeDepthStencilState(descriptor: depthStateDescriptor)!
     }
 
@@ -957,6 +1010,156 @@ public final class SplatRenderer: @unchecked Sendable {
             renderEncoder.popDebugGroup()
         }
 
+        renderEncoder.endEncoding()
+        return true
+    }
+
+    /// PlayCanvas-style depth pick pass: alpha-clips soft splat fringes and writes nearest opaque depth.
+    /// Call before reading `depthTexture` for click/measure unprojection.
+    @discardableResult
+    public func renderPickDepth(viewports: [ViewportDescriptor],
+                                colorTexture: MTLTexture,
+                                depthTexture: MTLTexture,
+                                accessTimeout: TimeInterval = 0.1,
+                                sortTimeout: TimeInterval = 0.1,
+                                to commandBuffer: MTLCommandBuffer) throws -> Bool {
+        let deadline = Date().addingTimeInterval(accessTimeout)
+        while true {
+            let acquired = accessState.withLock { state -> Bool in
+                if state.hasExclusiveAccess { return false }
+                if !state.exclusiveAccessWaiters.isEmpty { return false }
+                if state.isRendering { return false }
+                if state.inFlightRenderCount >= maxSimultaneousRenders { return false }
+                state.isRendering = true
+                state.inFlightRenderCount += 1
+                return true
+            }
+            if acquired { break }
+            if Date() >= deadline { return false }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+
+        var renderCompletionScheduled = false
+        defer {
+            accessState.withLock { state in
+                state.isRendering = false
+            }
+            if !renderCompletionScheduled {
+                renderCompleted()
+            }
+        }
+
+        let allChunks: [ChunkEntry] = orderedChunkIDs.compactMap { chunks[$0] }
+        let cameraPose = Self.cameraWorldPose(forViewports: viewports)
+        sorter.updateCameraPose(position: cameraPose.position, forward: cameraPose.forward)
+
+        var splatIndexBuffer = sorter.tryObtainSortedIndices()
+        if splatIndexBuffer == nil && sortTimeout > 0 {
+            let sortDeadline = Date().addingTimeInterval(sortTimeout)
+            while splatIndexBuffer == nil && Date() < sortDeadline {
+                Thread.sleep(forTimeInterval: 0.01)
+                splatIndexBuffer = sorter.tryObtainSortedIndices()
+            }
+        }
+        guard let splatIndexBuffer else { return false }
+
+        commandBuffer.addCompletedHandler { [sorter, weak self] _ in
+            self?.renderCompleted()
+            sorter.releaseSortedIndices(splatIndexBuffer)
+        }
+        renderCompletionScheduled = true
+
+        let splatCount = splatIndexBuffer.count
+        guard splatCount != 0 else { return false }
+
+        let indexedSplatCount = min(splatCount, Constants.maxIndexedSplatCount)
+        let instanceCount = (splatCount + indexedSplatCount - 1) / indexedSplatCount
+
+        switchToNextDynamicBuffer()
+        updateUniforms(forViewports: viewports,
+                       chunkCount: UInt32(allChunks.count),
+                       splatCount: UInt32(splatCount),
+                       indexedSplatCount: UInt32(indexedSplatCount))
+
+        guard let chunksBuffer = buildChunksBuffer(allChunks: allChunks) else {
+            return false
+        }
+        commandBuffer.addCompletedHandler { [bufferPool, chunksBuffer] _ in
+            bufferPool.release(chunksBuffer, tag: .chunks)
+        }
+
+        try buildPickPipelineStatesIfNeeded(
+            colorFormat: colorTexture.pixelFormat,
+            depthFormat: depthTexture.pixelFormat
+        )
+        guard let pickPipelineState = renderState.pickPipelineState,
+              let pickDepthState = renderState.pickDepthState else {
+            return false
+        }
+
+        let renderPassDescriptor = MTLRenderPassDescriptor()
+        renderPassDescriptor.colorAttachments[0].texture = colorTexture
+        renderPassDescriptor.colorAttachments[0].loadAction = .clear
+        renderPassDescriptor.colorAttachments[0].storeAction = .dontCare
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        renderPassDescriptor.depthAttachment.texture = depthTexture
+        renderPassDescriptor.depthAttachment.loadAction = .clear
+        renderPassDescriptor.depthAttachment.storeAction = .store
+        // Standard Metal Z: 1 = far. Front-most opaque fragment wins with lessEqual.
+        renderPassDescriptor.depthAttachment.clearDepth = 1.0
+
+        guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+            return false
+        }
+        renderEncoder.label = "Pick Depth Pass"
+        renderEncoder.setViewports(viewports.map(\.viewport))
+        if viewports.count > 1 {
+            var viewMappings = (0..<viewports.count).map {
+                MTLVertexAmplificationViewMapping(viewportArrayIndexOffset: UInt32($0),
+                                                  renderTargetArrayIndexOffset: UInt32($0))
+            }
+            renderEncoder.setVertexAmplificationCount(viewports.count, viewMappings: &viewMappings)
+        }
+
+        let triangleVertexCount = indexedSplatCount * 6
+        if renderState.triangleVertexIndexBuffer.count < triangleVertexCount {
+            do {
+                try renderState.triangleVertexIndexBuffer.ensureCapacity(triangleVertexCount)
+            } catch {
+                renderEncoder.endEncoding()
+                return false
+            }
+            renderState.triangleVertexIndexBuffer.count = triangleVertexCount
+            for i in 0..<indexedSplatCount {
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 0] = UInt32(i * 4 + 0)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 1] = UInt32(i * 4 + 1)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 2] = UInt32(i * 4 + 2)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 3] = UInt32(i * 4 + 1)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 4] = UInt32(i * 4 + 2)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 5] = UInt32(i * 4 + 3)
+            }
+        }
+
+        renderEncoder.setRenderPipelineState(pickPipelineState)
+        renderEncoder.setDepthStencilState(pickDepthState)
+        renderEncoder.setCullMode(.none)
+        renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: renderState.uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
+        renderEncoder.setVertexBuffer(chunksBuffer, offset: 0, index: BufferIndex.chunks.rawValue)
+        renderEncoder.setVertexBuffer(splatIndexBuffer.buffer, offset: 0, index: BufferIndex.splatIndex.rawValue)
+
+        for entry in allChunks {
+            renderEncoder.useResource(entry.chunk.splats.buffer, usage: .read, stages: .vertex)
+            if let shBuffer = entry.chunk.shCoefficients?.buffer {
+                renderEncoder.useResource(shBuffer, usage: .read, stages: .vertex)
+            }
+        }
+
+        renderEncoder.drawIndexedPrimitives(type: .triangle,
+                                            indexCount: triangleVertexCount,
+                                            indexType: .uint32,
+                                            indexBuffer: renderState.triangleVertexIndexBuffer.buffer,
+                                            indexBufferOffset: 0,
+                                            instanceCount: instanceCount)
         renderEncoder.endEncoding()
         return true
     }

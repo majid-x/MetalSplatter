@@ -61,7 +61,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     }
 
     static let empty = SceneNavigationData(
-        startPosition: SIMD3(0, 0, 1.54),
+        startPosition: SIMD3(0, Constants.cameraGroundY, Constants.cameraStartZ),
         startYawRadians: 0,
         startPitchRadians: 0,
         collisionLayers: [],

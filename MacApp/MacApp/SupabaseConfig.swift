@@ -9,7 +9,10 @@ enum SupabaseConfig {
         supabaseURL: url,
         supabaseKey: publishableKey,
         options: .init(
-            auth: .init(emitLocalSessionAsInitialSession: true)
+            auth: .init(
+                storage: FileAuthLocalStorage(),
+                emitLocalSessionAsInitialSession: true
+            )
         )
     )
 }

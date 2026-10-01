@@ -1,11 +1,12 @@
 import SwiftUI
-import AppKit
 
 struct ProductSearchSidePanel: View {
     let matches: [ProductSearchMatch]
     let isLoading: Bool
     let statusText: String
     let onClose: () -> Void
+
+    @Environment(\.openURL) private var openURL
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -66,7 +67,7 @@ struct ProductSearchSidePanel: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(matches) { match in
-                            ProductMatchCard(match: match)
+                            ProductMatchCard(match: match, openURL: openURL)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -87,11 +88,12 @@ struct ProductSearchSidePanel: View {
 
 private struct ProductMatchCard: View {
     let match: ProductSearchMatch
+    let openURL: OpenURLAction
 
     var body: some View {
         Button {
             if let link = match.link {
-                NSWorkspace.shared.open(link)
+                openURL(link)
             }
         } label: {
             VStack(spacing: 8) {

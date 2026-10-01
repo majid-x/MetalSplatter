@@ -14,45 +14,29 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
     }
 }
 
-private struct CatalogProject: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let category: String
-    let zipResourceName: String
-    let accent: [Color]
-}
-
-private let catalogProjects: [CatalogProject] = [
-    .init(
-        id: "hakob-outdoors",
-        title: "Hakob Outdoors",
-        category: "Residential",
-        zipResourceName: "Archive",
-        accent: [
-            Color(red: 0.28, green: 0.36, blue: 0.34),
-            Color(red: 0.10, green: 0.12, blue: 0.11)
-        ]
-    )
-]
-
 struct DashboardView: View {
     @Environment(AuthManager.self) private var authManager
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var projectLibrary = ProjectLibrary()
 
     @State private var selectedTab: DashboardTab = .projects
-    @State private var openedProject: CatalogProject?
+    @State private var openedProject: RemoteProject?
     @State private var searchText = ""
     @State private var isSearchPresented = false
+    /// Bumps when local caches change so cards re-check offline status.
+    @State private var localCacheRevision = 0
+
+    private var isCompact: Bool { sizeClass == .compact }
 
     private var firstName: String {
         let name = authManager.displayName
         return name.split(separator: " ").first.map(String.init) ?? name
     }
 
-    private var filteredProjects: [CatalogProject] {
-        catalogProjects.filter { project in
+    private var filteredProjects: [RemoteProject] {
+        projectLibrary.projects.filter { project in
             searchText.isEmpty
-                || project.title.localizedCaseInsensitiveContains(searchText)
-                || project.category.localizedCaseInsensitiveContains(searchText)
+                || project.name.localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -60,12 +44,12 @@ struct DashboardView: View {
         ZStack {
             if let openedProject {
                 ProjectViewerView(
-                    title: openedProject.title,
-                    zipResourceName: openedProject.zipResourceName,
+                    project: openedProject,
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             self.openedProject = nil
                         }
+                        localCacheRevision += 1
                     }
                 )
                 .transition(.opacity)
@@ -80,15 +64,61 @@ struct DashboardView: View {
         .sheet(isPresented: $isSearchPresented) {
             searchSheet
         }
+        .task(id: authManager.userId) {
+            guard let userId = authManager.userId else {
+                projectLibrary.clear()
+                return
+            }
+            await projectLibrary.refresh(userId: userId)
+        }
     }
 
     private var dashboardChrome: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 210)
+        Group {
+            if isCompact {
+                VStack(spacing: 0) {
+                    mainContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    compactTabBar
+                }
+            } else {
+                HStack(spacing: 0) {
+                    sidebar
+                        .frame(width: 210)
 
-            mainContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    mainContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    private var compactTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(DashboardTab.allCases) { tab in
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 16, weight: .regular))
+                        Text(tab.rawValue)
+                            .font(.system(size: 11, weight: selectedTab == tab ? .medium : .regular))
+                    }
+                    .foregroundStyle(selectedTab == tab ? .white : .white.opacity(0.38))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color.black)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
         }
     }
 
@@ -162,7 +192,7 @@ struct DashboardView: View {
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(.white.opacity(0.38))
                     }
-                    .menuStyle(.borderlessButton)
+                    .menuStyle(.automatic)
                     .fixedSize()
                 }
             }
@@ -186,6 +216,20 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
 
+                Button {
+                    Task {
+                        guard let userId = authManager.userId else { return }
+                        await projectLibrary.refresh(userId: userId)
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .light))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .disabled(projectLibrary.isLoading)
+
                 Menu {
                     Button("Sign Out", role: .destructive) {
                         Task { await authManager.signOut() }
@@ -196,9 +240,8 @@ struct DashboardView: View {
                         .foregroundStyle(.white.opacity(0.75))
                         .frame(width: 32, height: 32)
                 }
-                .menuStyle(.borderlessButton)
             }
-            .padding(.horizontal, 36)
+            .padding(.horizontal, isCompact ? 20 : 36)
             .padding(.top, 22)
             .padding(.bottom, 8)
 
@@ -226,35 +269,126 @@ struct DashboardView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 36)
+            .padding(.horizontal, isCompact ? 20 : 36)
 
-            ScrollView {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 20),
-                        GridItem(.flexible(), spacing: 20),
-                        GridItem(.flexible(), spacing: 20),
-                        GridItem(.flexible(), spacing: 20)
-                    ],
-                    spacing: 28
-                ) {
-                    ForEach(filteredProjects) { project in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                openedProject = project
-                            }
-                        } label: {
-                            ProjectCardView(project: project)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            Group {
+                if projectLibrary.isLoading && projectLibrary.projects.isEmpty {
+                    projectsLoadingState
+                } else if let error = projectLibrary.errorMessage, projectLibrary.projects.isEmpty {
+                    projectsErrorState(error)
+                } else if filteredProjects.isEmpty {
+                    projectsEmptyState
+                } else {
+                    projectsGrid
                 }
-                .padding(.horizontal, 36)
-                .padding(.bottom, 36)
-                .padding(.top, 4)
             }
         }
         .padding(.top, 12)
+    }
+
+    private var projectColumns: [GridItem] {
+        if isCompact {
+            return [
+                GridItem(.flexible(), spacing: 16),
+                GridItem(.flexible(), spacing: 16),
+            ]
+        }
+        return [
+            GridItem(.flexible(), spacing: 20),
+            GridItem(.flexible(), spacing: 20),
+            GridItem(.flexible(), spacing: 20),
+            GridItem(.flexible(), spacing: 20),
+        ]
+    }
+
+    private var projectsGrid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: projectColumns,
+                spacing: isCompact ? 20 : 28
+            ) {
+                ForEach(filteredProjects) { project in
+                    ProjectCardView(
+                        project: project,
+                        cacheRevision: localCacheRevision,
+                        onOpen: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                openedProject = project
+                            }
+                        },
+                        onDeleteLocal: {
+                            ProjectDownloadStore.removeCachedPackage(for: project.id)
+                            localCacheRevision += 1
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, isCompact ? 20 : 36)
+            .padding(.bottom, isCompact ? 24 : 36)
+            .padding(.top, 4)
+        }
+    }
+
+    private var projectsLoadingState: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.regular)
+                .tint(.white)
+            Text("Loading your projects…")
+                .font(.system(size: 14))
+                .foregroundStyle(.white.opacity(0.45))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func projectsErrorState(_ message: String) -> some View {
+        VStack(spacing: 14) {
+            Text("Couldn't load projects")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.white)
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.45))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            Button("Retry") {
+                Task {
+                    guard let userId = authManager.userId else { return }
+                    await projectLibrary.refresh(userId: userId)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 36)
+    }
+
+    private var projectsEmptyState: some View {
+        VStack(spacing: 10) {
+            Text(searchText.isEmpty ? "No projects yet" : "No matching projects")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.white)
+            Text(
+                searchText.isEmpty
+                    ? "Projects linked to your account will show up here."
+                    : "Try a different search."
+            )
+            .font(.system(size: 13))
+            .foregroundStyle(.white.opacity(0.45))
+
+            if searchText.isEmpty {
+                Button("Refresh") {
+                    Task {
+                        guard let userId = authManager.userId else { return }
+                        await projectLibrary.refresh(userId: userId)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 8)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 36)
     }
 
     private var settingsPane: some View {
@@ -289,56 +423,112 @@ struct DashboardView: View {
 }
 
 private struct ProjectCardView: View {
-    let project: CatalogProject
+    let project: RemoteProject
+    var cacheRevision: Int = 0
+    var onOpen: () -> Void = {}
+    var onDeleteLocal: () -> Void = {}
+
+    private var accent: [Color] {
+        ProjectCardView.accent(for: project.id)
+    }
+
+    private var isCachedLocally: Bool {
+        _ = cacheRevision
+        return ProjectDownloadStore.hasCachedPackage(for: project)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ZStack {
-                LinearGradient(
-                    colors: project.accent,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+            ZStack(alignment: .topTrailing) {
+                Button(action: onOpen) {
+                    ZStack {
+                        LinearGradient(
+                            colors: accent,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
 
-                VStack(spacing: 10) {
-                    Image(systemName: "cube.transparent")
-                        .font(.system(size: 28, weight: .ultraLight))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text("Scene package")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.45))
+                        VStack(spacing: 10) {
+                            Image(systemName: isCachedLocally
+                                  ? "checkmark.circle"
+                                  : "icloud.and.arrow.down")
+                                .font(.system(size: 28, weight: .ultraLight))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Text(isCachedLocally
+                                  ? "Ready offline"
+                                  : "Cloud project")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 168)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 168)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-            }
+                .buttonStyle(.plain)
 
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-
-                    Text(project.category)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.38))
+                Menu {
+                    Button("Delete", role: .destructive) {
+                        onDeleteLocal()
+                    }
+                    .disabled(!isCachedLocally)
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 28, height: 28)
+                        .background(.black.opacity(0.35), in: Circle())
+                        .overlay {
+                            Circle()
+                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        }
                 }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .padding(.top, 2)
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .padding(10)
             }
-            .padding(.horizontal, 2)
+
+            Button(action: onOpen) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.name)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+
+                        Text(project.categoryLabel)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.38))
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .padding(.top, 2)
+                }
+                .padding(.horizontal, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .contentShape(Rectangle())
+    }
+
+    private static func accent(for id: UUID) -> [Color] {
+        let palette: [[Color]] = [
+            [Color(red: 0.28, green: 0.36, blue: 0.34), Color(red: 0.10, green: 0.12, blue: 0.11)],
+            [Color(red: 0.22, green: 0.30, blue: 0.42), Color(red: 0.08, green: 0.10, blue: 0.16)],
+            [Color(red: 0.36, green: 0.28, blue: 0.24), Color(red: 0.12, green: 0.09, blue: 0.08)],
+            [Color(red: 0.24, green: 0.32, blue: 0.30), Color(red: 0.07, green: 0.11, blue: 0.12)],
+        ]
+        let hash = abs(id.uuidString.hashValue)
+        return palette[hash % palette.count]
     }
 }
 

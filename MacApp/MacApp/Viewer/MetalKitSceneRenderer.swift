@@ -1,4 +1,4 @@
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 
 import Metal
 import MetalKit
@@ -47,14 +47,82 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// When true, clicks pick a surface point instead of capturing the mouse for look.
     var pointClickMode = false
+    /// Per-project photo search API base URL from Supabase `photo_api`. Nil disables search.
+    var photoAPIBaseURL: URL?
+    /// From Supabase `spz` — skip PLY axis undo for photo API (SampleApp SPZ mode).
+    var photoSearchUsesSPZCoordinates = false
+    /// From Supabase `calibration` — PlayCanvas `useServerCalibration` (send raw display coords).
+    var photoSearchUsesServerCalibration = false
+    /// From Supabase `measur_factor`. Scales Measure distances (`display = raw * factor`).
+    var measureCalibrationFactor: Float = 1.0
     /// Latest successfully picked world-space coordinate, if any.
     var lastPickedCoordinate: SIMD3<Float>?
+    /// Same pick in model/depth-unprojection space (for drawing the marker with the splat view matrix).
+    private var lastPickedModelCoordinate: SIMD3<Float>?
     /// Status line shown next to the Point Click UI.
     var pointClickStatus: String = "Point Click off"
     /// Photos returned for the latest point-click search.
     var searchedPhotos: [PhotoSearchResult] = []
     /// True while a photo API request is in flight.
     var isPhotoSearching = false
+    /// PlayCanvas Fetch More: API reported more results available.
+    var hasMorePhotos = false
+    var isFetchingMorePhotos = false
+    private var photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
+    private var lastPhotoSearchCamera: SIMD3<Float>?
+    private var lastPhotoSearchViewDirection: SIMD3<Float>?
+
+    // MARK: - Measure (PlayCanvas SplatMeasurer: pick pass + hover reticle)
+    var measureMode = false
+    var measureSnappingEnabled = true
+    var measureDeleteMode = false
+    var measureStatus: String = "Measure off"
+    /// Screen-space distance labels for SwiftUI overlay.
+    private(set) var measureLabelOverlays: [MeasureLabelOverlay] = []
+    private var measureNodes: [MeasureNode] = []
+    private var measureIsFirstPointOfSession = true
+    private var measureHoverModelPoint: SIMD3<Float>?
+    private var measureDeleteHoverIndex: Int?
+    /// Last cursor in view coords (PlayCanvas keeps mouseX/Y and re-picks every tick).
+    private var lastMeasureHoverViewPoint: CGPoint?
+    private var lastMeasureHoverPickTime: CFTimeInterval = 0
+    private var measureOverlayRenderer: MeasureOverlayRenderer?
+    var onMeasureStateChanged: (() -> Void)?
+
+    struct MeasureNode {
+        /// Model / depth-unprojection space (for Metal draw).
+        var modelPosition: SIMD3<Float>
+        /// Linked to previous unless this starts a new chain.
+        var isStartOfChain: Bool
+        /// Distance to previous linked node in meters (nil for chain starts).
+        var distanceToPrevious: Float?
+    }
+
+    struct MeasureLabelOverlay: Identifiable, Equatable {
+        let id: Int
+        let viewPoint: CGPoint
+        let text: String
+    }
+
+    private enum MeasureConstants {
+        static let snapRadius: Float = 0.25
+        static let laserThickness: Float = 0.015
+        static let pointLimit = 10
+        static let peripheralAngleDegrees: Float = 60
+        /// PlayCanvas reticleScaleOffset default (cone).
+        static let reticleScale = SIMD3<Float>(0.06, 0.09, 0.06)
+        static let pulseSpeed: Float = 3.5
+        static let pulseMin: Float = 0.75
+        static let pulseMax: Float = 1.25
+        /// Hover pick throttle (~50 Hz), same as PlayCanvas.
+        static let hoverPickInterval: CFTimeInterval = 0.02
+        static let pinColor = SIMD4<Float>(0.18, 0.48, 1.0, 0.95)
+        static let laserColor = SIMD4<Float>(0.18, 0.55, 1.0, 0.9)
+        /// PlayCanvas reticle cyan.
+        static let hoverColor = SIMD4<Float>(0.0, 1.0, 1.0, 0.95)
+        static let deleteHoverColor = SIMD4<Float>(1.0, 0.25, 0.25, 0.95)
+        static let previewLaserColor = SIMD4<Float>(0.15, 0.9, 1.0, 0.45)
+    }
 
     /// When true, walk positions are sampled into `recordedCollisionPoints`.
     var isRecordingCollision = false
@@ -66,22 +134,26 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var isRecordingStairs = false
     /// Stair polygon corners (need ≥ 3). Y is height at that corner.
     private(set) var recordedStairPoints: [SIMD3<Float>] = []
-    /// Active stair height region (from scene package and/or last marked polygon).
-    private var stairRegion: StairRegion? = nil
+    /// Active stair height regions (from scene package and/or marked polygons).
+    private var stairRegions: [StairRegion] = []
     /// Standing height when off stairs. Only changes while walking on a stair region.
     private var persistentFloorY: Float = Constants.cameraGroundY
 
     private var lastCameraUpdateTimestamp: Date? = nil
     private var lastProjectionMatrix = matrix_identity_float4x4
     private var lastViewMatrix = matrix_identity_float4x4
-    private var depthReadbackBuffer: MTLBuffer?
+    /// PlayCanvas-style pick targets (alpha-clipped splat depth, separate from display depth).
+    private var pickColorTexture: MTLTexture?
+    private var pickDepthTexture: MTLTexture?
     private var photoSearchTask: Task<Void, Never>?
     private let photoSearchClient = PhotoSearchClient()
     /// Walkable region from scene package or a finished collision recording.
     private var walkableBounds: WalkableCollisionBounds? = nil
+    /// Solid wall panels from SampleApp `[blocks]` (world → collision via `navigationBasis`).
+    private var collisionBlocks: [CollisionBlock] = []
     /// Collision / stair source points kept for "Download TXT" re-export.
     private var loadedCollisionPoints: [SIMD3<Float>] = []
-    private var loadedStairVertices: [SIMD3<Float>] = []
+    private var loadedStairPolygons: [[SIMD3<Float>]] = []
     /// World-space navigation frame (custom when nav.txt has `[orientation]`).
     private var navigationUp = SIMD3<Float>(0, 1, 0)
     private var navigationForward = SIMD3<Float>(0, 0, -1)
@@ -90,8 +162,23 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var cameraMoveSpeed: Float = Constants.cameraMoveSpeed
     var drawableSize: CGSize = .zero
 
+    private var navigationBasis: NavigationBasis {
+        NavigationBasis(up: navigationUp, forward: navigationForward)
+    }
+
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
     var onPointClickStateChanged: (() -> Void)?
+
+    /// Filled on the next rendered frame when a product-search screenshot is requested.
+    private var screenshotContinuation: CheckedContinuation<PlatformImage?, Never>?
+
+    /// Captures the next presented frame as a `PlatformImage` (BGRA framebuffer readback).
+    func captureScreenshotImage() async -> PlatformImage? {
+        await withCheckedContinuation { continuation in
+            screenshotContinuation?.resume(returning: nil)
+            screenshotContinuation = continuation
+        }
+    }
 
     init?(_ metalKitView: MTKView) {
         self.device = metalKitView.device!
@@ -102,7 +189,14 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         metalKitView.depthStencilPixelFormat = MTLPixelFormat.depth32Float
         metalKitView.sampleCount = 1
         metalKitView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-        depthReadbackBuffer = device.makeBuffer(length: MemoryLayout<Float>.size, options: .storageModeShared)
+        // Required so drawable.texture can be blit/read for screenshots.
+        metalKitView.framebufferOnly = false
+        measureOverlayRenderer = MeasureOverlayRenderer(
+            device: device,
+            colorFormat: metalKitView.colorPixelFormat,
+            depthFormat: metalKitView.depthStencilPixelFormat,
+            sampleCount: metalKitView.sampleCount
+        )
     }
 
     func load(_ model: ModelIdentifier?) async throws {
@@ -117,24 +211,41 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         persistentFloorY = Constants.cameraGroundY
         cameraMoveSpeed = Constants.cameraMoveSpeed
         walkableBounds = nil
-        stairRegion = nil
+        stairRegions = []
+        collisionBlocks = []
         loadedCollisionPoints = []
-        loadedStairVertices = []
+        loadedStairPolygons = []
         recordedCollisionPoints = []
         recordedStairPoints = []
         lastRecordedCollisionPoint = nil
+        navigationUp = SIMD3(0, 1, 0)
+        navigationForward = SIMD3(0, 0, -1)
+        usesCustomOrientation = false
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
+        lastPickedModelCoordinate = nil
+        pickColorTexture = nil
+        pickDepthTexture = nil
         searchedPhotos = []
         isPhotoSearching = false
+        isFetchingMorePhotos = false
+        hasMorePhotos = false
+        photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
+        lastPhotoSearchCamera = nil
+        lastPhotoSearchViewDirection = nil
         photoSearchTask?.cancel()
         photoSearchTask = nil
+        clearMeasureGeometry()
+        measureMode = false
+        measureDeleteMode = false
+        measureStatus = "Measure off"
         if pointClickMode {
             pointClickStatus = "Click a surface to find photos"
         } else {
             pointClickStatus = "Point Click off"
         }
         onPointClickStateChanged?()
+        onMeasureStateChanged?()
 
         switch model {
         case .gaussianSplat(let url, let navigation):
@@ -143,7 +254,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
                                           depthFormat: metalKitView.depthStencilPixelFormat,
                                           sampleCount: metalKitView.sampleCount,
                                           maxViewCount: 1,
-                                          maxSimultaneousRenders: Constants.maxSimultaneousRenders)
+                                          maxSimultaneousRenders: Constants.maxSimultaneousRenders,
+                                          highQualityDepth: false)
             let reader = try AutodetectSceneReader(url)
             let points = try await reader.readAll()
             let chunk = try SplatChunk(device: device, from: points)
@@ -174,42 +286,475 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    /// Apply start pose + collision + stairs from a scene package `nav.txt`.
+    /// Apply start pose + collision + stairs strictly from a scene package `nav.txt`.
+    /// Missing sections stay empty — no synthetic walkable bounds, blocks, or stairs.
     func applyNavigation(_ data: SceneNavigationData) {
+        applyOrientation(up: data.orientationUp, forward: data.orientationForward)
         if let speed = data.moveSpeed, speed > 0 {
             cameraMoveSpeed = speed
         }
         cameraPosition = data.startPosition
         cameraYaw = data.startYawRadians
         cameraPitch = data.startPitchRadians
-        persistentFloorY = data.startPosition.y
+        persistentFloorY = heightAlongUp(data.startPosition)
 
         loadedCollisionPoints = data.collisionPoints
         let clusters = data.collisionLayers.map { ($0.floorY, $0.points) }
-        walkableBounds = WalkableCollisionBounds.fromClusters(clusters)
+        // Empty clusters → nil bounds (free XZ). Never invent a walkable polygon.
+        walkableBounds = clusters.isEmpty ? nil : WalkableCollisionBounds.fromClusters(clusters)
+        collisionBlocks = data.collisionBlocks
 
-        loadedStairVertices = data.stairVertices
-        if let region = StairRegion.make(vertices: data.stairVertices) {
-            stairRegion = region
-        }
+        loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
+        rebuildStairRegions()
 
         applyStairOrGroundHeight()
     }
 
+    private func applyOrientation(up: SIMD3<Float>?, forward: SIMD3<Float>?) {
+        guard let up, let forward else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upLen = simd_length(up)
+        guard upLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        let upN = up / upLen
+        var forwardFlat = forward - simd_dot(forward, upN) * upN
+        let forwardLen = simd_length(forwardFlat)
+        guard forwardLen > 1e-5 else {
+            navigationUp = SIMD3(0, 1, 0)
+            navigationForward = SIMD3(0, 0, -1)
+            usesCustomOrientation = false
+            return
+        }
+        navigationUp = upN
+        navigationForward = forwardFlat / forwardLen
+        usesCustomOrientation = true
+    }
+
+    private func heightAlongUp(_ position: SIMD3<Float>) -> Float {
+        simd_dot(position, navigationUp)
+    }
+
+    private func setHeightAlongUp(_ height: Float) {
+        let current = heightAlongUp(cameraPosition)
+        cameraPosition += (height - current) * navigationUp
+    }
+
+    private func rebuildStairRegions() {
+        stairRegions = loadedStairPolygons.compactMap { StairRegion.make(vertices: $0) }
+    }
+
     func setPointClickMode(_ enabled: Bool) {
+        guard photoAPIBaseURL != nil || !enabled else {
+            pointClickMode = false
+            pointClickStatus = "Point Click off"
+            onPointClickStateChanged?()
+            return
+        }
+        if enabled {
+            setMeasureMode(false)
+        }
         pointClickMode = enabled
         if enabled {
             lastPickedCoordinate = nil
+            lastPickedModelCoordinate = nil
             searchedPhotos = []
             isPhotoSearching = false
+            isFetchingMorePhotos = false
+            hasMorePhotos = false
+            photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
+            lastPhotoSearchCamera = nil
+            lastPhotoSearchViewDirection = nil
             pointClickStatus = "Click a surface to find photos"
         } else {
+            lastPickedModelCoordinate = nil
             pointClickStatus = "Point Click off"
             photoSearchTask?.cancel()
             photoSearchTask = nil
             isPhotoSearching = false
+            isFetchingMorePhotos = false
+            hasMorePhotos = false
         }
         onPointClickStateChanged?()
+    }
+
+    // MARK: Measure tool
+
+    func setMeasureMode(_ enabled: Bool) {
+        if enabled {
+            setPointClickMode(false)
+        }
+        measureMode = enabled
+        measureDeleteMode = false
+        measureHoverModelPoint = nil
+        measureDeleteHoverIndex = nil
+        lastMeasureHoverViewPoint = nil
+        lastMeasureHoverPickTime = 0
+        if enabled {
+            measureIsFirstPointOfSession = true
+            measureStatus = "Measure on · click surfaces"
+        } else {
+            measureStatus = measureNodes.isEmpty ? "Measure off" : "Measure off · \(measureNodes.count) points kept"
+        }
+        refreshMeasureLabels()
+        onMeasureStateChanged?()
+        onPointClickStateChanged?()
+    }
+
+    func setMeasureSnappingEnabled(_ enabled: Bool) {
+        measureSnappingEnabled = enabled
+        onMeasureStateChanged?()
+    }
+
+    func setMeasureDeleteMode(_ enabled: Bool) {
+        guard measureMode else { return }
+        measureDeleteMode = enabled
+        measureDeleteHoverIndex = nil
+        measureStatus = enabled ? "Delete mode · click a pin" : "Measure on · click surfaces"
+        onMeasureStateChanged?()
+    }
+
+    func startNewMeasureChain() {
+        guard measureMode else { return }
+        measureIsFirstPointOfSession = true
+        measureDeleteMode = false
+        measureStatus = "New chain · click first point"
+        onMeasureStateChanged?()
+    }
+
+    @discardableResult
+    func undoMeasurePoint() -> Bool {
+        guard !measureNodes.isEmpty else { return false }
+        measureNodes.removeLast()
+        measureIsFirstPointOfSession = measureNodes.isEmpty
+        measureStatus = measureNodes.isEmpty
+            ? (measureMode ? "Measure on · click surfaces" : "Measure off")
+            : String(format: "Undid point · %d left", measureNodes.count)
+        refreshMeasureLabels()
+        onMeasureStateChanged?()
+        return true
+    }
+
+    func clearMeasureGeometry() {
+        measureNodes.removeAll(keepingCapacity: true)
+        measureHoverModelPoint = nil
+        measureDeleteHoverIndex = nil
+        lastMeasureHoverViewPoint = nil
+        measureIsFirstPointOfSession = true
+        measureLabelOverlays = []
+    }
+
+    /// PlayCanvas hover tracking — uses the same alpha-clipped pick pass as click.
+    func updateMeasureHover(at viewPoint: CGPoint) {
+        guard measureMode else { return }
+        lastMeasureHoverViewPoint = viewPoint
+        pickMeasureHover(at: viewPoint, force: false)
+    }
+
+    private func pickMeasureHover(at viewPoint: CGPoint, force: Bool) {
+        guard measureMode else { return }
+        let now = CACurrentMediaTime()
+        if !force, now - lastMeasureHoverPickTime < MeasureConstants.hoverPickInterval { return }
+        lastMeasureHoverPickTime = now
+
+        guard let modelPoint = worldPosition(at: viewPoint) else {
+            measureHoverModelPoint = nil
+            measureDeleteHoverIndex = nil
+            return
+        }
+
+        if measureDeleteMode {
+            measureDeleteHoverIndex = nearestMeasureNodeIndex(to: modelPoint, radius: MeasureConstants.snapRadius)
+            measureHoverModelPoint = measureDeleteHoverIndex.map { measureNodes[$0].modelPosition }
+            return
+        }
+
+        var point = modelPoint
+        if measureSnappingEnabled,
+           let index = nearestMeasureNodeIndex(to: modelPoint, radius: MeasureConstants.snapRadius) {
+            point = measureNodes[index].modelPosition
+        }
+        measureHoverModelPoint = point
+        measureDeleteHoverIndex = nil
+    }
+
+    func handleMeasureClick(at viewPoint: CGPoint) {
+        guard measureMode else { return }
+
+        // Same alpha-clipped pick pass as Point Click / hover.
+        guard let modelPoint = worldPosition(at: viewPoint) else {
+            measureStatus = "No surface at click"
+            onMeasureStateChanged?()
+            return
+        }
+
+        if measureDeleteMode {
+            if let index = measureDeleteHoverIndex
+                ?? nearestMeasureNodeIndex(to: modelPoint, radius: MeasureConstants.snapRadius) {
+                deleteMeasureNode(at: index)
+                measureDeleteMode = false
+                measureDeleteHoverIndex = nil
+                measureStatus = "Deleted pin · Measure on"
+                onMeasureStateChanged?()
+            } else {
+                measureStatus = "No pin near click"
+                onMeasureStateChanged?()
+            }
+            return
+        }
+
+        var point = modelPoint
+        if measureSnappingEnabled,
+           let index = nearestMeasureNodeIndex(to: modelPoint, radius: MeasureConstants.snapRadius) {
+            point = measureNodes[index].modelPosition
+        }
+
+        addMeasurePoint(point)
+    }
+
+    private func addMeasurePoint(_ modelPoint: SIMD3<Float>) {
+        if measureNodes.count >= MeasureConstants.pointLimit {
+            measureNodes.removeFirst()
+        }
+
+        let isStart: Bool
+        var distance: Float?
+        if measureIsFirstPointOfSession || measureNodes.isEmpty {
+            isStart = true
+        } else if let previous = measureNodes.last, canLink(toPrevious: previous.modelPosition) {
+            isStart = false
+            distance = simd_distance(previous.modelPosition, modelPoint) * measureCalibrationFactor
+        } else {
+            isStart = true
+        }
+
+        measureNodes.append(MeasureNode(
+            modelPosition: modelPoint,
+            isStartOfChain: isStart,
+            distanceToPrevious: distance
+        ))
+        measureIsFirstPointOfSession = false
+
+        if let distance {
+            measureStatus = "Segment \(Self.formatMeasureDistance(meters: distance)) · \(measureNodes.count) points"
+        } else {
+            measureStatus = String(format: "Point placed · %d points", measureNodes.count)
+        }
+        refreshMeasureLabels()
+        onMeasureStateChanged?()
+    }
+
+    private func deleteMeasureNode(at index: Int) {
+        guard measureNodes.indices.contains(index) else { return }
+        measureNodes.remove(at: index)
+        rebuildMeasureChainDistances()
+        refreshMeasureLabels()
+    }
+
+    private func rebuildMeasureChainDistances() {
+        guard measureNodes.count >= 2 else {
+            if let first = measureNodes.indices.first {
+                measureNodes[first].isStartOfChain = true
+                measureNodes[first].distanceToPrevious = nil
+            }
+            return
+        }
+        measureNodes[0].isStartOfChain = true
+        measureNodes[0].distanceToPrevious = nil
+        for i in 1..<measureNodes.count {
+            if measureNodes[i].isStartOfChain {
+                measureNodes[i].distanceToPrevious = nil
+            } else {
+                let prev = measureNodes[i - 1].modelPosition
+                let cur = measureNodes[i].modelPosition
+                measureNodes[i].distanceToPrevious = simd_distance(prev, cur) * measureCalibrationFactor
+            }
+        }
+    }
+
+    private func canLink(toPrevious previousModel: SIMD3<Float>) -> Bool {
+        let previousWorld = usesCustomOrientation ? previousModel : SplatNavigationSpace.fromModel(previousModel)
+        let toPrev = previousWorld - cameraPosition
+        let len = simd_length(toPrev)
+        guard len > 1e-5 else { return true }
+        let dir = toPrev / len
+        let cosLimit = cos(MeasureConstants.peripheralAngleDegrees * .pi / 180)
+        return simd_dot(cameraForward, dir) >= cosLimit
+    }
+
+    private func nearestMeasureNodeIndex(to modelPoint: SIMD3<Float>, radius: Float) -> Int? {
+        var bestIndex: Int?
+        var bestDistance = radius
+        for (index, node) in measureNodes.enumerated() {
+            let d = simd_distance(node.modelPosition, modelPoint)
+            if d <= bestDistance {
+                bestDistance = d
+                bestIndex = index
+            }
+        }
+        return bestIndex
+    }
+
+    private func refreshMeasureLabels() {
+        var overlays: [MeasureLabelOverlay] = []
+        guard measureNodes.count >= 2 else {
+            measureLabelOverlays = []
+            return
+        }
+        for i in 1..<measureNodes.count {
+            let node = measureNodes[i]
+            guard !node.isStartOfChain, let distance = node.distanceToPrevious else { continue }
+            let prev = measureNodes[i - 1].modelPosition
+            let mid = (prev + node.modelPosition) * 0.5
+            guard let screen = projectModelPointToView(mid) else { continue }
+            overlays.append(MeasureLabelOverlay(
+                id: i,
+                viewPoint: screen,
+                text: Self.formatMeasureDistance(meters: distance)
+            ))
+        }
+        measureLabelOverlays = overlays
+    }
+
+    /// PlayCanvas `getFormattedDistance` with imperial symbols (`'` / `"`) and 1/32" fractions.
+    private static func formatMeasureDistance(meters: Float) -> String {
+        let totalFeet = Double(meters) * 3.280839895
+        var feet = Int(floor(totalFeet))
+        var inches = 0
+        var fractionStr = ""
+
+        let remainingInches = (totalFeet - Double(feet)) * 12.0
+        inches = Int(floor(remainingInches))
+        let fractionOfInch = remainingInches - Double(inches)
+
+        // Round to nearest 32nd (PlayCanvas enableImperialFractions).
+        var numerator = Int((fractionOfInch * 32.0).rounded())
+        if numerator == 32 {
+            numerator = 0
+            inches += 1
+        }
+        if inches == 12 {
+            inches = 0
+            feet += 1
+        }
+        if numerator > 0 {
+            let divisor = gcd(numerator, 32)
+            fractionStr = " \(numerator / divisor)/\(32 / divisor)"
+        }
+
+        return "\(feet)' \(inches)\(fractionStr)\""
+    }
+
+    private static func gcd(_ a: Int, _ b: Int) -> Int {
+        var x = abs(a)
+        var y = abs(b)
+        while y != 0 {
+            let t = x % y
+            x = y
+            y = t
+        }
+        return max(x, 1)
+    }
+
+    private func projectModelPointToView(_ modelPoint: SIMD3<Float>) -> CGPoint? {
+        guard drawableSize.width > 1, drawableSize.height > 1 else { return nil }
+        let clip = lastProjectionMatrix * lastViewMatrix * SIMD4(modelPoint.x, modelPoint.y, modelPoint.z, 1)
+        guard abs(clip.w) > 1e-6 else { return nil }
+        let ndc = clip.xyz / clip.w
+        // Behind / far outside the clip volume — hide label.
+        guard ndc.z >= -0.05, ndc.z <= 1.05 else { return nil }
+        let bounds = metalKitView.bounds
+        guard bounds.width > 1, bounds.height > 1 else { return nil }
+        let x = CGFloat((ndc.x + 1) * 0.5) * bounds.width
+        // SwiftUI `.position` uses top-left origin on every platform (not AppKit bottom-left).
+        let y = CGFloat((1 - ndc.y) * 0.5) * bounds.height
+        return CGPoint(x: x, y: y)
+    }
+
+    private func drawMeasureOverlay(
+        viewProjection: matrix_float4x4,
+        colorTexture: MTLTexture,
+        depthTexture: MTLTexture?,
+        commandBuffer: MTLCommandBuffer
+    ) {
+        guard let overlay = measureOverlayRenderer else { return }
+
+        // Same distance-scaled blue dots as Point Click.
+        let eyeModel = (lastViewMatrix.inverse * SIMD4<Float>(0, 0, 0, 1)).xyz
+        for pin in measureNodes.map(\.modelPosition) {
+            let distance = max(0.35, simd_length(pin - eyeModel))
+            let size = min(0.5, max(0.02, distance * 0.012))
+            overlay.drawPins(
+                atModelPositions: [pin],
+                diameter: size,
+                color: MeasureConstants.pinColor,
+                viewProjection: viewProjection,
+                colorTexture: colorTexture,
+                depthTexture: depthTexture,
+                to: commandBuffer
+            )
+        }
+
+        var segments: [(SIMD3<Float>, SIMD3<Float>)] = []
+        if measureNodes.count >= 2 {
+            for i in 1..<measureNodes.count {
+                let node = measureNodes[i]
+                guard !node.isStartOfChain else { continue }
+                segments.append((measureNodes[i - 1].modelPosition, node.modelPosition))
+            }
+        }
+        if !segments.isEmpty {
+            overlay.drawSegments(
+                segments: segments,
+                thickness: MeasureConstants.laserThickness,
+                color: MeasureConstants.laserColor,
+                viewProjection: viewProjection,
+                colorTexture: colorTexture,
+                depthTexture: depthTexture,
+                to: commandBuffer
+            )
+        }
+
+        // PlayCanvas hover cone + preview laser (pick-pass position).
+        if measureMode, let hover = measureHoverModelPoint {
+            let hoverColor = measureDeleteMode ? MeasureConstants.deleteHoverColor : MeasureConstants.hoverColor
+            let t = Float(CACurrentMediaTime())
+            let sinWave = sin(t * MeasureConstants.pulseSpeed)
+            let pulse = MeasureConstants.pulseMin
+                + (MeasureConstants.pulseMax - MeasureConstants.pulseMin) * (sinWave + 1) * 0.5
+            overlay.drawReticle(
+                atModelPosition: hover,
+                scale: MeasureConstants.reticleScale,
+                pulse: measureDeleteMode ? 1.2 : pulse,
+                color: hoverColor,
+                viewProjection: viewProjection,
+                colorTexture: colorTexture,
+                depthTexture: depthTexture,
+                to: commandBuffer
+            )
+
+            if !measureDeleteMode,
+               !measureIsFirstPointOfSession,
+               let last = measureNodes.last,
+               canLink(toPrevious: last.modelPosition) {
+                overlay.drawSegments(
+                    segments: [(last.modelPosition, hover)],
+                    thickness: MeasureConstants.laserThickness * 0.85,
+                    color: MeasureConstants.previewLaserColor,
+                    viewProjection: viewProjection,
+                    colorTexture: colorTexture,
+                    depthTexture: depthTexture,
+                    to: commandBuffer
+                )
+            }
+        }
     }
 
     /// Apply FPS-style look from a mouse / finger delta in points.
@@ -224,12 +769,39 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         photoSearchTask = nil
         searchedPhotos = []
         isPhotoSearching = false
+        isFetchingMorePhotos = false
+        hasMorePhotos = false
+        photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
+        lastPhotoSearchCamera = nil
+        lastPhotoSearchViewDirection = nil
         if pointClickMode {
             pointClickStatus = lastPickedCoordinate.map {
                 String(format: "X: %.3f   Y: %.3f   Z: %.3f", $0.x, $0.y, $0.z)
             } ?? "Click a surface to find photos"
         }
         onPointClickStateChanged?()
+    }
+
+    /// PlayCanvas Fetch More: request a larger `max_results` page for the last click.
+    func fetchMorePhotos() {
+        guard pointClickMode,
+              let apiBaseURL = photoAPIBaseURL,
+              let world = lastPickedCoordinate,
+              hasMorePhotos,
+              !isPhotoSearching,
+              !isFetchingMorePhotos else { return }
+
+        photoSearchMaxResults += PhotoSearchAPI.defaultMaxResults
+        isFetchingMorePhotos = true
+        onPointClickStateChanged?()
+        runPhotoSearch(
+            apiBaseURL: apiBaseURL,
+            world: world,
+            camera: lastPhotoSearchCamera ?? cameraPosition,
+            viewDirection: lastPhotoSearchViewDirection,
+            maxResults: photoSearchMaxResults,
+            isFetchMore: true
+        )
     }
 
     /// Start or stop sampling the camera path for a walkable collision region.
@@ -253,11 +825,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Combined nav.txt for packaging with a PLY inside a zip.
     func navigationExportText() -> String {
         let collision = !recordedCollisionPoints.isEmpty ? recordedCollisionPoints : loadedCollisionPoints
-        let stairs: [SIMD3<Float>]
+        var stairs = loadedStairPolygons
         if recordedStairPoints.count >= 3 {
-            stairs = recordedStairPoints
-        } else {
-            stairs = loadedStairVertices
+            stairs.append(recordedStairPoints)
         }
         return SceneNavigationData(
             startPosition: cameraPosition,
@@ -267,7 +837,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             orientationForward: usesCustomOrientation ? navigationForward : nil,
             moveSpeed: cameraMoveSpeed,
             collisionPoints: collision,
-            stairVertices: stairs
+            collisionBlocks: collisionBlocks,
+            stairPolygons: stairs
         ).serialize()
     }
 
@@ -351,62 +922,122 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private func commitStairRegionIfPossible() {
-        if let region = StairRegion.make(vertices: recordedStairPoints) {
-            stairRegion = region
-            loadedStairVertices = recordedStairPoints
-            applyStairOrGroundHeight()
-        }
+        guard recordedStairPoints.count >= 3 else { return }
+        loadedStairPolygons.append(recordedStairPoints)
+        rebuildStairRegions()
+        applyStairOrGroundHeight()
     }
 
     /// Pick the rendered surface under a click and search nearby source photos.
     func handlePointClick(at viewPoint: CGPoint) {
         guard pointClickMode else { return }
+        guard let apiBaseURL = photoAPIBaseURL else {
+            pointClickStatus = "This project has no photo search API"
+            onPointClickStateChanged?()
+            return
+        }
 
-        guard let world = worldPosition(at: viewPoint) else {
+        guard let modelPoint = worldPosition(at: viewPoint) else {
             lastPickedCoordinate = nil
+            lastPickedModelCoordinate = nil
             searchedPhotos = []
             isPhotoSearching = false
+            isFetchingMorePhotos = false
+            hasMorePhotos = false
             pointClickStatus = "No surface at click"
             onPointClickStateChanged?()
             return
         }
 
+        let world = usesCustomOrientation ? modelPoint : SplatNavigationSpace.fromModel(modelPoint)
+        lastPickedModelCoordinate = modelPoint
         lastPickedCoordinate = world
         pointClickStatus = String(format: "X: %.3f   Y: %.3f   Z: %.3f · searching…", world.x, world.y, world.z)
         searchedPhotos = []
         isPhotoSearching = true
+        isFetchingMorePhotos = false
+        hasMorePhotos = false
+        photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
         onPointClickStateChanged?()
 
         let camera = cameraPosition
-        let forward = cameraForward
+        // PlayCanvas: normalize(clickedPoint − cameraPosition)
+        let toClick = world - camera
+        let viewDirection: SIMD3<Float>? = {
+            let len = simd_length(toClick)
+            guard len > 1e-6 else { return nil }
+            return toClick / len
+        }()
+        lastPhotoSearchCamera = camera
+        lastPhotoSearchViewDirection = viewDirection
+
+        runPhotoSearch(
+            apiBaseURL: apiBaseURL,
+            world: world,
+            camera: camera,
+            viewDirection: viewDirection,
+            maxResults: photoSearchMaxResults,
+            isFetchMore: false
+        )
+    }
+
+    private func runPhotoSearch(
+        apiBaseURL: URL,
+        world: SIMD3<Float>,
+        camera: SIMD3<Float>,
+        viewDirection: SIMD3<Float>?,
+        maxResults: Int,
+        isFetchMore: Bool
+    ) {
         photoSearchTask?.cancel()
+        let useSPZ = photoSearchUsesSPZCoordinates
+        let useCalibration = photoSearchUsesServerCalibration
         photoSearchTask = Task { [photoSearchClient] in
             do {
-                let photos = try await photoSearchClient.search(
+                let response = try await photoSearchClient.search(
+                    baseURL: apiBaseURL,
                     displayWorldPoint: world,
                     cameraPosition: camera,
-                    viewDirection: forward,
-                    maxResults: 6
+                    viewDirection: viewDirection,
+                    maxResults: maxResults,
+                    useSPZCoordinates: useSPZ,
+                    useServerCalibration: useCalibration
                 )
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self.searchedPhotos = photos
+                    self.searchedPhotos = response.photos
+                    self.hasMorePhotos = response.hasMore
                     self.isPhotoSearching = false
+                    self.isFetchingMorePhotos = false
                     self.pointClickStatus = String(
                         format: "X: %.3f   Y: %.3f   Z: %.3f · %d photos",
-                        world.x, world.y, world.z, photos.count
+                        world.x, world.y, world.z, response.photos.count
                     )
                     self.onPointClickStateChanged?()
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self.searchedPhotos = []
-                    self.isPhotoSearching = false
-                    self.pointClickStatus = String(
-                        format: "X: %.3f   Y: %.3f   Z: %.3f · %@",
-                        world.x, world.y, world.z, error.localizedDescription
-                    )
+                    if isFetchMore {
+                        self.photoSearchMaxResults = max(
+                            PhotoSearchAPI.defaultMaxResults,
+                            self.photoSearchMaxResults - PhotoSearchAPI.defaultMaxResults
+                        )
+                        self.isFetchingMorePhotos = false
+                        self.pointClickStatus = String(
+                            format: "X: %.3f   Y: %.3f   Z: %.3f · fetch more failed: %@",
+                            world.x, world.y, world.z, error.localizedDescription
+                        )
+                    } else {
+                        self.searchedPhotos = []
+                        self.hasMorePhotos = false
+                        self.isPhotoSearching = false
+                        self.isFetchingMorePhotos = false
+                        self.pointClickStatus = String(
+                            format: "X: %.3f   Y: %.3f   Z: %.3f · %@",
+                            world.x, world.y, world.z, error.localizedDescription
+                        )
+                    }
                     self.onPointClickStateChanged?()
                 }
             }
@@ -470,8 +1101,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var projectionMatrix: matrix_float4x4 {
         matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
                                       aspectRatio: Float(drawableSize.width / max(drawableSize.height, 1)),
-                                      // Perspective near must be > 0; keep extremely close for indoor viewing.
-                                      nearZ: 0.00001,
+                                      // Match SampleApp — perspective near must be > 0.
+                                      nearZ: 0.001,
                                       farZ: 500.0)
     }
 
@@ -494,9 +1125,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         // Ground-plane movement (FPS-style): ignore look pitch so forward never flies up/down.
         var forward = cameraForward
-        forward.y = 0
+        forward -= simd_dot(forward, navigationUp) * navigationUp
         var right = cameraRight
-        right.y = 0
+        right -= simd_dot(right, navigationUp) * navigationUp
 
         let forwardLength = simd_length(forward)
         let rightLength = simd_length(right)
@@ -512,56 +1143,128 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         let length = simd_length(direction)
         if length > 0 {
-            let proposed = cameraPosition + (direction / length) * Constants.cameraMoveSpeed * deltaTime
+            let proposed = cameraPosition + (direction / length) * cameraMoveSpeed * deltaTime
             // While recording collision/stairs, allow free XZ.
-            // Otherwise clamp using only the collision layer for the current camera height.
             if isRecordingCollision || isRecordingStairs {
                 cameraPosition = proposed
-            } else if let walkableBounds {
-                cameraPosition = walkableBounds.clamp(proposed)
             } else {
-                cameraPosition = proposed
+                var clamped = proposed
+                if let walkableBounds {
+                    clamped = walkableBounds.clamp(clamped)
+                }
+                let basis = navigationBasis
+                let moved = CollisionBlock.move(
+                    from: basis.toLocal(cameraPosition),
+                    to: basis.toLocal(clamped),
+                    against: collisionBlocks
+                )
+                cameraPosition = basis.toWorld(moved)
             }
         }
 
         if isRecordingStairs {
             if movement.up {
-                cameraPosition.y += Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition += navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
             if movement.down {
-                cameraPosition.y -= Constants.stairRecordClimbSpeed * deltaTime
+                cameraPosition -= navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
         } else if isRecordingCollision {
             recordCollisionSampleIfNeeded()
         } else {
             applyStairOrGroundHeight()
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
     private func applyStairOrGroundHeight() {
-        if let stairRegion, let height = stairRegion.navigationHeight(at: cameraPosition) {
-            // On stairs: climb between normal ground and normal upper floor.
+        if let height = stairRegions.lazy.compactMap({ $0.navigationHeight(at: self.cameraPosition) }).first {
             persistentFloorY = height
-            cameraPosition.y = height
-        } else if let stairRegion {
-            // Off stairs: stick to the nearer normal floor (ground or upper).
-            persistentFloorY = stairRegion.nearestFloorY(to: persistentFloorY)
-            cameraPosition.y = persistentFloorY
+            setHeightAlongUp(height)
         } else {
-            cameraPosition.y = persistentFloorY
+            setHeightAlongUp(persistentFloorY)
         }
     }
 
+    private func ensurePickTargets(width: Int, height: Int) -> (color: MTLTexture, depth: MTLTexture)? {
+        guard width > 0, height > 0 else { return nil }
+        if let color = pickColorTexture, let depth = pickDepthTexture,
+           color.width == width, color.height == height,
+           depth.width == width, depth.height == height {
+            return (color, depth)
+        }
+
+        let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        colorDesc.usage = [.renderTarget]
+        colorDesc.storageMode = .private
+
+        let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .depth32Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        depthDesc.usage = [.renderTarget]
+        depthDesc.storageMode = .private
+
+        guard let color = device.makeTexture(descriptor: colorDesc),
+              let depth = device.makeTexture(descriptor: depthDesc) else {
+            return nil
+        }
+        color.label = "Pick Color"
+        depth.label = "Pick Depth"
+        pickColorTexture = color
+        pickDepthTexture = depth
+        return (color, depth)
+    }
+
+    /// Depth-unproject a view click using a PlayCanvas-style alpha-clipped pick pass
+    /// (`SplatRenderer.renderPickDepth`), not the soft display depth buffer.
     private func worldPosition(at viewPoint: CGPoint) -> SIMD3<Float>? {
         guard drawableSize.width > 0, drawableSize.height > 0 else { return nil }
-        guard let depthTexture = metalKitView.depthStencilTexture else { return nil }
-        guard let depthReadbackBuffer else { return nil }
         guard metalKitView.bounds.width > 0, metalKitView.bounds.height > 0 else { return nil }
+        guard let splatRenderer = modelRenderer as? SplatRenderer else { return nil }
+
+        let width = Int(drawableSize.width.rounded())
+        let height = Int(drawableSize.height.rounded())
+        guard let targets = ensurePickTargets(width: width, height: height) else { return nil }
+
+        let mtlViewport = MTLViewport(
+            originX: 0, originY: 0,
+            width: Double(width), height: Double(height),
+            znear: 0, zfar: 1
+        )
+        let pickViewport = SplatRenderer.ViewportDescriptor(
+            viewport: mtlViewport,
+            projectionMatrix: lastProjectionMatrix,
+            viewMatrix: lastViewMatrix,
+            screenSize: SIMD2(width, height)
+        )
+
+        guard let pickBuffer = commandQueue.makeCommandBuffer() else { return nil }
+        do {
+            let ok = try splatRenderer.renderPickDepth(
+                viewports: [pickViewport],
+                colorTexture: targets.color,
+                depthTexture: targets.depth,
+                to: pickBuffer
+            )
+            guard ok else { return nil }
+        } catch {
+            Self.log.error("Pick depth render failed: \(error.localizedDescription)")
+            return nil
+        }
+        pickBuffer.commit()
+        pickBuffer.waitUntilCompleted()
 
         let scaleX = drawableSize.width / metalKitView.bounds.width
         let scaleY = drawableSize.height / metalKitView.bounds.height
 
-        // Depth texture origin is top-left.
 #if os(macOS)
         let pixelX = Int((viewPoint.x * scaleX).rounded(.down))
         let pixelY = Int(((metalKitView.bounds.height - viewPoint.y) * scaleY).rounded(.down))
@@ -570,34 +1273,65 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let pixelY = Int((viewPoint.y * scaleY).rounded(.down))
 #endif
 
+        let depthTexture = targets.depth
         let maxX = max(depthTexture.width - 1, 0)
         let maxY = max(depthTexture.height - 1, 0)
         guard pixelX >= 0, pixelY >= 0, pixelX <= maxX, pixelY <= maxY else { return nil }
+
+        // Small neighborhood; pick pass already alpha-clipped — take nearest solid depth.
+        let radius = 1
+        let sampleSide = radius * 2 + 1
+        let sampleCount = sampleSide * sampleSide
+        let bytesPerSample = MemoryLayout<Float>.size
+        guard let sampleBuffer = device.makeBuffer(
+            length: bytesPerSample * sampleCount,
+            options: .storageModeShared
+        ) else {
+            return nil
+        }
 
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let blit = commandBuffer.makeBlitCommandEncoder() else {
             return nil
         }
 
-        blit.copy(from: depthTexture,
-                  sourceSlice: 0,
-                  sourceLevel: 0,
-                  sourceOrigin: MTLOrigin(x: pixelX, y: pixelY, z: 0),
-                  sourceSize: MTLSize(width: 1, height: 1, depth: 1),
-                  to: depthReadbackBuffer,
-                  destinationOffset: 0,
-                  destinationBytesPerRow: MemoryLayout<Float>.size,
-                  destinationBytesPerImage: MemoryLayout<Float>.size)
+        var destOffset = 0
+        for dy in -radius...radius {
+            for dx in -radius...radius {
+                let sx = min(max(pixelX + dx, 0), maxX)
+                let sy = min(max(pixelY + dy, 0), maxY)
+                blit.copy(
+                    from: depthTexture,
+                    sourceSlice: 0,
+                    sourceLevel: 0,
+                    sourceOrigin: MTLOrigin(x: sx, y: sy, z: 0),
+                    sourceSize: MTLSize(width: 1, height: 1, depth: 1),
+                    to: sampleBuffer,
+                    destinationOffset: destOffset,
+                    destinationBytesPerRow: bytesPerSample,
+                    destinationBytesPerImage: bytesPerSample
+                )
+                destOffset += bytesPerSample
+            }
+        }
         blit.endEncoding()
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
 
-        let depth = depthReadbackBuffer.contents().assumingMemoryBound(to: Float.self).pointee
-        // Renderer clears empty pixels to 0; treat near-zero as a miss.
-        guard depth > 1e-4, depth.isFinite else { return nil }
+        let depths = sampleBuffer.contents().bindMemory(to: Float.self, capacity: sampleCount)
+        // Pick buffer clears to 1.0 (far); reject empty.
+        var bestDepth: Float?
+        for i in 0..<sampleCount {
+            let d = depths[i]
+            guard d.isFinite, d > 1e-5, d < 1.0 - 1e-5 else { continue }
+            if bestDepth == nil || d < bestDepth! {
+                bestDepth = d
+            }
+        }
+        guard let depth = bestDepth else { return nil }
 
-        let ndcX = (2.0 * Float(pixelX) + 1.0) / Float(drawableSize.width) - 1.0
-        let ndcY = 1.0 - (2.0 * Float(pixelY) + 1.0) / Float(drawableSize.height)
+        let ndcX = (2.0 * Float(pixelX) + 1.0) / Float(width) - 1.0
+        let ndcY = 1.0 - (2.0 * Float(pixelY) + 1.0) / Float(height)
         let clip = SIMD4<Float>(ndcX, ndcY, depth, 1)
         let invViewProjection = (lastProjectionMatrix * lastViewMatrix).inverse
         let worldHomogeneous = invViewProjection * clip
@@ -608,13 +1342,17 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        guard let modelRenderer, modelRenderer.isReadyToRender else { return }
+        guard let modelRenderer, modelRenderer.isReadyToRender else {
+            failPendingScreenshot()
+            return
+        }
         guard let drawable = view.currentDrawable else { return }
 
         _ = inFlightSemaphore.wait(timeout: DispatchTime.distantFuture)
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             inFlightSemaphore.signal()
+            failPendingScreenshot()
             return
         }
 
@@ -628,6 +1366,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         lastProjectionMatrix = projectionMatrix
         lastViewMatrix = viewMatrix
+
+        // Re-pick under the stored cursor so the cone tracks while walking
+        // (PlayCanvas updateTrackingPreviews ~50 Hz with mouseX/Y).
+        if measureMode, let hoverPoint = lastMeasureHoverViewPoint {
+            pickMeasureHover(at: hoverPoint, force: false)
+        }
 
         let didRender: Bool
         do {
@@ -644,10 +1388,121 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
 
         if didRender {
+            let colorTexture = view.multisampleColorTexture ?? drawable.texture
+            let viewProjection = lastProjectionMatrix * lastViewMatrix
+            // Keep pins/lasers after exiting measure mode (PlayCanvas persistInNormalMode).
+            if !measureNodes.isEmpty || measureMode {
+                drawMeasureOverlay(
+                    viewProjection: viewProjection,
+                    colorTexture: colorTexture,
+                    depthTexture: view.depthStencilTexture,
+                    commandBuffer: commandBuffer
+                )
+                let previousOverlays = measureLabelOverlays
+                refreshMeasureLabels()
+                // Only push SwiftUI when label screen positions/text actually change.
+                if previousOverlays != measureLabelOverlays {
+                    onMeasureStateChanged?()
+                }
+            }
+
+            // SampleApp / PlayCanvas SplatClickQuery blue pick marker.
+            if let marker = lastPickedModelCoordinate, pointClickMode {
+                let distance: Float
+                if let nav = lastPickedCoordinate {
+                    distance = max(0.35, simd_length(nav - cameraPosition))
+                } else {
+                    distance = 2.0
+                }
+                // PlayCanvas: clamp(distance * 0.012, 0.02, 0.5)
+                let size = min(0.5, max(0.02, distance * 0.012))
+                measureOverlayRenderer?.drawPins(
+                    atModelPositions: [marker],
+                    diameter: size,
+                    color: SIMD4<Float>(0.18, 0.48, 1.0, 0.95),
+                    viewProjection: viewProjection,
+                    colorTexture: colorTexture,
+                    depthTexture: view.depthStencilTexture,
+                    to: commandBuffer
+                )
+            }
+
+            if let continuation = screenshotContinuation {
+                screenshotContinuation = nil
+                enqueueScreenshotReadback(
+                    from: colorTexture,
+                    commandBuffer: commandBuffer,
+                    continuation: continuation
+                )
+            }
             commandBuffer.present(drawable)
+        } else {
+            failPendingScreenshot()
         }
 
         commandBuffer.commit()
+    }
+
+    private func failPendingScreenshot() {
+        guard let continuation = screenshotContinuation else { return }
+        screenshotContinuation = nil
+        continuation.resume(returning: nil)
+    }
+
+    private func enqueueScreenshotReadback(
+        from texture: MTLTexture,
+        commandBuffer: MTLCommandBuffer,
+        continuation: CheckedContinuation<PlatformImage?, Never>
+    ) {
+        let width = texture.width
+        let height = texture.height
+        guard width > 0, height > 0 else {
+            continuation.resume(returning: nil)
+            return
+        }
+
+        let bytesPerPixel = 4
+        let alignment = max(device.minimumLinearTextureAlignment(for: texture.pixelFormat), bytesPerPixel)
+        let bytesPerRow = ((width * bytesPerPixel + alignment - 1) / alignment) * alignment
+        let byteCount = bytesPerRow * height
+
+        guard !texture.isFramebufferOnly else {
+            Self.log.error("Screenshot source is framebufferOnly; set MTKView.framebufferOnly = false")
+            continuation.resume(returning: nil)
+            return
+        }
+
+        guard let buffer = device.makeBuffer(length: byteCount, options: .storageModeShared),
+              let blit = commandBuffer.makeBlitCommandEncoder() else {
+            continuation.resume(returning: nil)
+            return
+        }
+
+        blit.copy(
+            from: texture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: width, height: height, depth: 1),
+            to: buffer,
+            destinationOffset: 0,
+            destinationBytesPerRow: bytesPerRow,
+            destinationBytesPerImage: byteCount
+        )
+        blit.endEncoding()
+
+        commandBuffer.addCompletedHandler { _ in
+            let bgraData = Data(bytes: buffer.contents(), count: byteCount)
+            let image = PlatformImage.fromBGRA(
+                bgraData: bgraData,
+                width: width,
+                height: height,
+                bytesPerRow: bytesPerRow
+            )
+            DispatchQueue.main.async {
+                continuation.resume(returning: image)
+            }
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -655,4 +1510,4 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 }
 
-#endif // os(iOS) || os(macOS)
+#endif // os(iOS) || os(macOS) || os(visionOS)

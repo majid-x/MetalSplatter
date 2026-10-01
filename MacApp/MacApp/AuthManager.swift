@@ -39,6 +39,10 @@ final class AuthManager {
         return session?.user.email ?? "Account"
     }
 
+    var userId: UUID? {
+        session?.user.id
+    }
+
     private let client = SupabaseConfig.client
 
     init() {

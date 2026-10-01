@@ -3,7 +3,6 @@ import SwiftUI
 
 enum Constants {
     static let maxSimultaneousRenders = 3
-#if !os(visionOS)
     static let fovy = Angle(degrees: 65)
     /// Starting camera distance in front of the scene origin (looking down -Z).
     static let cameraStartZ: Float = 1.54
@@ -49,7 +48,6 @@ enum Constants {
     static let stairEdgePadding: Float = 0.15
     /// Default floor height when not on a stair region.
     static let cameraGroundY: Float = 0
-#endif
     /// Half-band (meters) around a collision layer's floor Y where that layer applies.
     static let collisionFloorHalfHeight: Float = 0.45
     /// Cluster gap (meters) when splitting recorded collision samples into floors.

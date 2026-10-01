@@ -50,3 +50,13 @@ fragment half4 singleStageSplatFragmentShader(FragmentIn in [[stage_in]]) {
     half alpha = splatFragmentAlpha(in.relativePosition, in.color.a);
     return half4(alpha * in.color.rgb, alpha);
 }
+
+/// PlayCanvas-style pick pass: discard soft splat fringes so depth sticks to solid surfaces.
+fragment half4 pickSplatFragmentShader(FragmentIn in [[stage_in]]) {
+    half alpha = splatFragmentAlpha(in.relativePosition, in.color.a);
+    // Matches typical PlayCanvas gsplat pick `alphaClip` — ignore fuzzy edges / floaters.
+    if (alpha < 0.4h) {
+        discard_fragment();
+    }
+    return half4(1.0h, 1.0h, 1.0h, 1.0h);
+}

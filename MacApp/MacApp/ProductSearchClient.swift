@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 
 struct ProductSearchMatch: Identifiable, Equatable {
     let id: String
@@ -36,11 +35,11 @@ enum ProductSearchError: LocalizedError {
 /// Screenshot → Cloudinary upload → SearchAPI Google Lens (products).
 @MainActor
 final class ProductSearchClient {
-    func searchProducts(image: NSImage) async throws -> [ProductSearchMatch] {
+    func searchProducts(image: PlatformImage) async throws -> [ProductSearchMatch] {
         guard ProductSearchConfig.isConfigured else {
             throw ProductSearchError.notConfigured
         }
-        guard let pngData = image.pngData(), !pngData.isEmpty else {
+        guard let pngData = image.pngDataCompatible(), !pngData.isEmpty else {
             throw ProductSearchError.emptyImage
         }
 
@@ -156,36 +155,5 @@ final class ProductSearchClient {
             throw ProductSearchError.noMatches
         }
         return matches
-    }
-}
-
-extension NSImage {
-    func pngData() -> Data? {
-        guard let tiff = tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
-    }
-
-    func cropped(to rectInPoints: CGRect, fromViewSize viewSize: CGSize) -> NSImage? {
-        guard let cgImage = self.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return nil
-        }
-
-        // SwiftUI selection rects and CGImage both use top-left origin.
-        let scaleX = CGFloat(cgImage.width) / max(viewSize.width, 1)
-        let scaleY = CGFloat(cgImage.height) / max(viewSize.height, 1)
-
-        var crop = CGRect(
-            x: rectInPoints.minX * scaleX,
-            y: rectInPoints.minY * scaleY,
-            width: rectInPoints.width * scaleX,
-            height: rectInPoints.height * scaleY
-        ).integral
-
-        crop = crop.intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-        guard crop.width >= 2, crop.height >= 2,
-              let cropped = cgImage.cropping(to: crop) else { return nil }
-
-        return NSImage(cgImage: cropped, size: NSSize(width: crop.width, height: crop.height))
     }
 }

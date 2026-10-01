@@ -35,26 +35,10 @@ enum ScenePackageLoader {
             return try loadZip(url)
         }
         if modelExtensions.contains(ext) {
-            let nav = try loadSiblingNavigation(nextTo: url)
-            return Contents(modelURL: url, navigation: nav)
+            // Loose model files open as-is — never look for a sibling nav.txt.
+            return Contents(modelURL: url, navigation: nil)
         }
         throw LoadError.unsupportedType
-    }
-
-    private static func loadSiblingNavigation(nextTo modelURL: URL) throws -> SceneNavigationData? {
-        let folder = modelURL.deletingLastPathComponent()
-        let candidates = ["nav.txt", "navigation.txt", "scene-nav.txt"]
-        for name in candidates {
-            let navURL = folder.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: navURL.path) else { continue }
-            let text = try String(contentsOf: navURL, encoding: .utf8)
-            do {
-                return try SceneNavigationData.parse(text)
-            } catch {
-                throw LoadError.invalidNavigation(error.localizedDescription)
-            }
-        }
-        return nil
     }
 
     private static func loadZip(_ zipURL: URL) throws -> Contents {

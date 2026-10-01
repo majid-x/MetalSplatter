@@ -1,34 +1,47 @@
 import SwiftUI
 
-/// In-window project viewer: unpacks bundled zip, shows loader, then client scene.
+/// In-window project viewer: downloads into private app storage, unpacks, then shows the scene.
 struct ProjectViewerView: View {
-    let title: String
-    let zipResourceName: String
+    let project: RemoteProject
     var onBack: () -> Void
 
     private enum Phase: Equatable {
+        case downloading
         case unpacking
         case loadingScene
         case ready
         case failed(String)
     }
 
-    @State private var phase: Phase = .unpacking
+    @State private var phase: Phase = .downloading
     @State private var model: ModelIdentifier?
     @State private var pulse = false
+    @State private var downloadProgress: ProjectDownloadStore.Progress?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
             if let model, phase == .ready || phase == .loadingScene {
-                ClientSceneView(modelIdentifier: model) { ready in
-                    if ready {
-                        withAnimation(.easeOut(duration: 0.35)) {
-                            phase = .ready
+                ClientSceneView(
+                    modelIdentifier: model,
+                    photoAPIBaseURL: project.photoAPIBaseURL,
+                    photoSearchUsesSPZCoordinates: project.isSPZ,
+                    photoSearchUsesServerCalibration: project.useServerCalibration,
+                    measureCalibrationFactor: project.measureFactor,
+                    onModelLoadStateChanged: { ready in
+                        if ready {
+                            withAnimation(.easeOut(duration: 0.35)) {
+                                phase = .ready
+                            }
+                        }
+                    },
+                    onModelLoadFailed: { message in
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            phase = .failed(message)
                         }
                     }
-                }
+                )
                 .opacity(phase == .ready ? 1 : 0.15)
                 .allowsHitTesting(phase == .ready)
             }
@@ -59,7 +72,7 @@ struct ProjectViewerView: View {
                 }
                 .buttonStyle(.plain)
 
-                Text(title)
+                Text(project.name)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white.opacity(0.7))
                     .lineLimit(1)
@@ -69,7 +82,11 @@ struct ProjectViewerView: View {
             .padding(.top, 16)
         }
         .preferredColorScheme(.dark)
-        .task {
+#if os(iOS)
+        .onAppear { AppOrientationLock.lockLandscape() }
+        .onDisappear { AppOrientationLock.unlockAll() }
+#endif
+        .task(id: project.id) {
             await openPackage()
         }
     }
@@ -109,9 +126,17 @@ struct ProjectViewerView: View {
                         .stroke(.white.opacity(0.08), lineWidth: 2)
                         .frame(width: 64, height: 64)
 
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(.white)
+                    if case .failed = phase {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 22, weight: .light))
+                            .foregroundStyle(.white.opacity(0.85))
+                    } else if phase == .downloading, downloadProgress?.fraction != nil {
+                        EmptyView()
+                    } else {
+                        ProgressView()
+                            .controlSize(.regular)
+                            .tint(.white)
+                    }
                 }
 
                 VStack(spacing: 8) {
@@ -123,20 +148,20 @@ struct ProjectViewerView: View {
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.white.opacity(0.45))
                         .multilineTextAlignment(.center)
+                        .frame(maxWidth: 360)
                 }
 
-                if case .failed(let message) = phase {
+                if phase == .downloading {
+                    downloadProgressSection
+                        .padding(.top, 4)
+                }
+
+                if case .failed = phase {
                     Button("Try Again") {
-                        Task { await openPackage() }
+                        Task { await openPackage(forceRedownload: true) }
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 8)
-
-                    Text(message)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(red: 0.95, green: 0.55, blue: 0.5))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 360)
                 }
             }
             .padding(40)
@@ -148,9 +173,33 @@ struct ProjectViewerView: View {
         }
     }
 
+    @ViewBuilder
+    private var downloadProgressSection: some View {
+        VStack(spacing: 10) {
+            if let fraction = downloadProgress?.fraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .tint(Color(red: 0.35, green: 0.72, blue: 0.85))
+                    .frame(maxWidth: 280)
+            } else if downloadProgress != nil {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(Color(red: 0.35, green: 0.72, blue: 0.85))
+                    .frame(maxWidth: 280)
+            }
+
+            if let downloadProgress {
+                Text(byteProgressLabel(downloadProgress))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+    }
+
     private var loaderTitle: String {
         switch phase {
-        case .unpacking: return "Opening project"
+        case .downloading: return "Downloading project"
+        case .unpacking: return "Preparing project"
         case .loadingScene: return "Loading scene"
         case .ready: return "Ready"
         case .failed: return "Couldn't open project"
@@ -159,35 +208,80 @@ struct ProjectViewerView: View {
 
     private var loaderSubtitle: String {
         switch phase {
+        case .downloading:
+            if ProjectDownloadStore.hasCachedPackage(for: project), downloadProgress == nil {
+                return "Opening your saved copy…"
+            }
+            return "Downloading your project…"
         case .unpacking:
-            return "Unpacking scene package…"
+            return "Getting everything ready…"
         case .loadingScene:
-            return "Building the splat viewer…"
+            return "Almost there…"
         case .ready:
             return ""
-        case .failed:
-            return "Free disk space if unpacking failed, and confirm Archive.zip is bundled."
+        case .failed(let message):
+            return message
         }
     }
 
-    private func openPackage() async {
-        phase = .unpacking
-        model = nil
+    private func byteProgressLabel(_ progress: ProjectDownloadStore.Progress) -> String {
+        let received = formatBytes(progress.receivedBytes)
+        if let total = progress.totalBytes, total > 0 {
+            return "\(received) / \(formatBytes(total))"
+        }
+        return received
+    }
 
-        guard let zipURL = Bundle.main.url(forResource: zipResourceName, withExtension: "zip") else {
-            phase = .failed("Missing \(zipResourceName).zip in app resources.")
-            return
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func openPackage(forceRedownload: Bool = false) async {
+        phase = .downloading
+        model = nil
+        downloadProgress = nil
+
+        if forceRedownload {
+            ProjectDownloadStore.removeCachedPackage(for: project.id)
         }
 
         do {
+            let zipURL = try await ProjectDownloadStore.ensureLocalPackage(for: project) { progress in
+                Task { @MainActor in
+                    downloadProgress = progress
+                }
+            }
+            let extractDir = try ProjectDownloadStore.extractDirectory(for: project.id)
+
+            phase = .unpacking
+            downloadProgress = nil
             let package = try await Task.detached(priority: .userInitiated) {
-                try ScenePackageLoader.load(from: zipURL)
+                try ScenePackageLoader.load(from: zipURL, extractDirectory: extractDir)
             }.value
 
             model = .gaussianSplat(package.modelURL, navigation: package.navigation)
             phase = .loadingScene
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(friendlyMessage(for: error))
         }
+    }
+
+    private func friendlyMessage(for error: Error) -> String {
+        if let localized = error as? LocalizedError, let description = localized.errorDescription {
+            return description
+        }
+        let text = error.localizedDescription
+        if text.localizedCaseInsensitiveContains("network")
+            || text.localizedCaseInsensitiveContains("internet")
+            || text.localizedCaseInsensitiveContains("offline")
+            || text.localizedCaseInsensitiveContains("timed out") {
+            return "Check your connection and try again."
+        }
+        return "Something went wrong while opening this project. Please try again."
     }
 }

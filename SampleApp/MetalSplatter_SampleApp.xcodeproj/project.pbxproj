@@ -26,6 +26,7 @@
 		617E50CB2B314C4800F99766 /* SplatIO in Frameworks */ = {isa = PBXBuildFile; productRef = 617E50CA2B314C4800F99766 /* SplatIO */; };
 		61BLOCK01FILEBUILD0000001 /* CollisionBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BLOCK01FILEREF00000001 /* CollisionBlock.swift */; };
 		61BLOCK01FILEBUILD0000002 /* CollisionBlockRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */; };
+		61MEAS01FILEBUILD00000001 /* MeasureOverlayRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61MEAS01FILEREF00000001 /* MeasureOverlayRenderer.swift */; };
 		61COLLIS01FILEBUILD00001 /* WalkableCollisionBounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */; };
 		61E963922F46D321002AD4B5 /* ProceduralSplatController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E963912F46D321002AD4B5 /* ProceduralSplatController.swift */; };
 		61NAV01FILEBUILD00000001 /* SceneNavigationData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61NAV01FILEREF00000001 /* SceneNavigationData.swift */; };
@@ -53,6 +54,7 @@
 		617E50B02B314BE200F99766 /* MetalSplatter SampleApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MetalSplatter SampleApp.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		61BLOCK01FILEREF00000001 /* CollisionBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionBlock.swift; sourceTree = "<group>"; };
 		61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionBlockRenderer.swift; sourceTree = "<group>"; };
+		61MEAS01FILEREF00000001 /* MeasureOverlayRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasureOverlayRenderer.swift; sourceTree = "<group>"; };
 		61COLLIS01FILEREF000001 /* WalkableCollisionBounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkableCollisionBounds.swift; sourceTree = "<group>"; };
 		61E963912F46D321002AD4B5 /* ProceduralSplatController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProceduralSplatController.swift; sourceTree = "<group>"; };
 		61NAV01FILEREF00000001 /* SceneNavigationData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneNavigationData.swift; sourceTree = "<group>"; };
@@ -112,6 +114,7 @@
 				61STAIR01FILEREF00000001 /* StairRegion.swift */,
 				61BLOCK01FILEREF00000001 /* CollisionBlock.swift */,
 				61BLOCK01FILEREF00000002 /* CollisionBlockRenderer.swift */,
+				61MEAS01FILEREF00000001 /* MeasureOverlayRenderer.swift */,
 				61NAV01FILEREF00000001 /* SceneNavigationData.swift */,
 				61NAV01FILEREF00000002 /* ScenePackageLoader.swift */,
 			);
@@ -252,6 +255,7 @@
 				61STAIR01FILEBUILD0000001 /* StairRegion.swift in Sources */,
 				61BLOCK01FILEBUILD0000001 /* CollisionBlock.swift in Sources */,
 				61BLOCK01FILEBUILD0000002 /* CollisionBlockRenderer.swift in Sources */,
+				61MEAS01FILEBUILD00000001 /* MeasureOverlayRenderer.swift in Sources */,
 				61NAV01FILEBUILD00000001 /* SceneNavigationData.swift in Sources */,
 				61NAV01FILEBUILD00000002 /* ScenePackageLoader.swift in Sources */,
 				610347DB2B46875700693CE3 /* VisionSceneRenderer.swift in Sources */,
@@ -274,6 +278,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6Q58X32CJA;
@@ -312,6 +317,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6Q58X32CJA;
