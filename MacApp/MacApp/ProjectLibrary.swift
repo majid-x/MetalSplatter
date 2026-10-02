@@ -25,6 +25,11 @@ final class ProjectLibrary {
                 .execute()
                 .value
             projects = rows
+            // Drop local downloads for projects no longer returned by the DB.
+            let keepIDs = Set(rows.map(\.id))
+            _ = await Task.detached(priority: .utility) {
+                ProjectDownloadStore.removeOrphanedCaches(keeping: keepIDs)
+            }.value
         } catch {
             projects = []
             errorMessage = friendlyMessage(for: error)

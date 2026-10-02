@@ -94,13 +94,14 @@ struct PhotoSearchClient: Sendable {
         /// Direction from camera toward the clicked point (PlayCanvas semantics).
         viewDirection: SIMD3<Float>? = nil,
         maxResults: Int = PhotoSearchAPI.defaultMaxResults,
-        /// SPZ scenes are often inverted vs PLY — skip the usual display→API 180° Z undo.
+        /// Inverted vs original: off = send display as-is; on = apply 180° Z undo.
         useSPZCoordinates: Bool = false,
-        /// PlayCanvas `useServerCalibration`: send raw display coords; server maps to COLMAP.
+        /// PlayCanvas `useServerCalibration`: always send raw display coords.
         useServerCalibration: Bool = false
     ) async throws -> PhotoSearchResponse {
-        // Either flag means "don't apply the client PLY COLMAP estimate" — send display/raw coords.
-        let sendRaw = useSPZCoordinates || useServerCalibration
+        // Inverted SPZ: off → raw display; on → PLY axis undo.
+        // Server calibration always sends raw (PlayCanvas useServerCalibration).
+        let sendRaw = !useSPZCoordinates || useServerCalibration
         let toAPIPoint: (SIMD3<Float>) -> SIMD3<Float> = { point in
             sendRaw ? point : PhotoSearchAPI.apiPoint(fromDisplayWorld: point)
         }

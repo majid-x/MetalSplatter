@@ -35,10 +35,38 @@ enum ScenePackageLoader {
             return try loadZip(url)
         }
         if modelExtensions.contains(ext) {
-            // Loose model files open as-is — never look for a sibling nav.txt.
-            return Contents(modelURL: url, navigation: nil)
+            return try loadLooseModel(url)
         }
         throw LoadError.unsupportedType
+    }
+
+    /// Bare .ply / .splat / .spz — also pick up a sibling `nav.txt` in the same folder when present.
+    private static func loadLooseModel(_ url: URL) throws -> Contents {
+        let navigation: SceneNavigationData?
+        if let navURL = siblingNavigation(nextTo: url) {
+            let text = try String(contentsOf: navURL, encoding: .utf8)
+            do {
+                navigation = try SceneNavigationData.parse(text)
+            } catch {
+                throw LoadError.invalidNavigation(error.localizedDescription)
+            }
+        } else {
+            navigation = nil
+        }
+        return Contents(modelURL: url, navigation: navigation)
+    }
+
+    private static func siblingNavigation(nextTo modelURL: URL) -> URL? {
+        let folder = modelURL.deletingLastPathComponent()
+        let preferred = ["nav.txt", "navigation.txt", "scene-nav.txt"]
+        let fm = FileManager.default
+        for name in preferred {
+            let candidate = folder.appendingPathComponent(name)
+            if fm.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private static func loadZip(_ zipURL: URL) throws -> Contents {

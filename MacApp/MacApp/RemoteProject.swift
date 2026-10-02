@@ -8,7 +8,7 @@ struct RemoteProject: Identifiable, Hashable, Sendable {
     let remoteURL: URL
     /// Base URL for Point Click photo search (e.g. `https://hakob.ngrok.app`). Nil = tool hidden.
     let photoAPIBaseURL: URL?
-    /// When true, photo search skips the PLY 180° Z undo (SPZ scenes are often inverted).
+    /// When true, photo search applies the PLY 180° Z undo; when false, sends display coords as-is.
     let isSPZ: Bool
     /// When true, send raw display coords and let the photo API apply server calibration (PlayCanvas `useServerCalibration`).
     let useServerCalibration: Bool

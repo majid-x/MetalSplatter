@@ -130,6 +130,54 @@ enum ProjectDownloadStore {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    /// UUID folder names under PrivateProjects that currently exist on disk.
+    static func cachedProjectIDs() -> [UUID] {
+        guard let root = try? rootDirectory else { return [] }
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: root.path) else { return [] }
+        return names.compactMap { UUID(uuidString: $0) }.filter { id in
+            var isDir: ObjCBool = false
+            let path = root.appendingPathComponent(id.uuidString, isDirectory: true).path
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+        }
+    }
+
+    /// Total bytes used by all locally cached projects (packages + extracted scenes).
+    static func totalCachedBytes() -> Int64 {
+        guard let root = try? rootDirectory else { return 0 }
+        return directoryByteSize(at: root)
+    }
+
+    /// Deletes local project folders whose IDs are not in `keepIDs` (e.g. removed from DB).
+    /// Returns the number of project folders removed.
+    @discardableResult
+    static func removeOrphanedCaches(keeping keepIDs: Set<UUID>) -> Int {
+        var removed = 0
+        for id in cachedProjectIDs() where !keepIDs.contains(id) {
+            removeCachedPackage(for: id)
+            removed += 1
+        }
+        return removed
+    }
+
+    private static func directoryByteSize(at url: URL) -> Int64 {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
+    }
+
     // MARK: - Download with progress
 
     private static func download(

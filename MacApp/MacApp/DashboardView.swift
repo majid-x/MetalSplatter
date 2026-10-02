@@ -25,8 +25,14 @@ struct DashboardView: View {
     @State private var isSearchPresented = false
     /// Bumps when local caches change so cards re-check offline status.
     @State private var localCacheRevision = 0
+    /// Total bytes of locally downloaded project packages.
+    @State private var localStorageBytes: Int64 = 0
 
     private var isCompact: Bool { sizeClass == .compact }
+
+    private var localStorageLabel: String {
+        ByteCountFormatter.string(fromByteCount: localStorageBytes, countStyle: .file)
+    }
 
     private var firstName: String {
         let name = authManager.displayName
@@ -50,6 +56,7 @@ struct DashboardView: View {
                             self.openedProject = nil
                         }
                         localCacheRevision += 1
+                        refreshLocalStorageUsage()
                     }
                 )
                 .transition(.opacity)
@@ -67,9 +74,12 @@ struct DashboardView: View {
         .task(id: authManager.userId) {
             guard let userId = authManager.userId else {
                 projectLibrary.clear()
+                refreshLocalStorageUsage()
                 return
             }
             await projectLibrary.refresh(userId: userId)
+            localCacheRevision += 1
+            refreshLocalStorageUsage()
         }
     }
 
@@ -204,8 +214,15 @@ struct DashboardView: View {
 
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 4) {
                 Spacer()
+
+                Label(localStorageLabel, systemImage: "internaldrive")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(.horizontal, 8)
+                    .help("Local storage used by downloaded projects")
+
                 Button {
                     isSearchPresented = true
                 } label: {
@@ -220,6 +237,8 @@ struct DashboardView: View {
                     Task {
                         guard let userId = authManager.userId else { return }
                         await projectLibrary.refresh(userId: userId)
+                        localCacheRevision += 1
+                        refreshLocalStorageUsage()
                     }
                 } label: {
                     Image(systemName: "arrow.clockwise")
@@ -319,6 +338,7 @@ struct DashboardView: View {
                         onDeleteLocal: {
                             ProjectDownloadStore.removeCachedPackage(for: project.id)
                             localCacheRevision += 1
+                            refreshLocalStorageUsage()
                         }
                     )
                 }
@@ -355,6 +375,8 @@ struct DashboardView: View {
                 Task {
                     guard let userId = authManager.userId else { return }
                     await projectLibrary.refresh(userId: userId)
+                    localCacheRevision += 1
+                    refreshLocalStorageUsage()
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -381,6 +403,8 @@ struct DashboardView: View {
                     Task {
                         guard let userId = authManager.userId else { return }
                         await projectLibrary.refresh(userId: userId)
+                        localCacheRevision += 1
+                        refreshLocalStorageUsage()
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -419,6 +443,10 @@ struct DashboardView: View {
         }
         .padding(24)
         .frame(width: 360)
+    }
+
+    private func refreshLocalStorageUsage() {
+        localStorageBytes = ProjectDownloadStore.totalCachedBytes()
     }
 }
 

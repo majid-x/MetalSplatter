@@ -39,6 +39,8 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     var orientationForward: SIMD3<Float>?
     /// WASD / pad walk speed in meters per second. Nil = app default.
     var moveSpeed: Float?
+    /// Multiplier for Measure tool pin / laser / reticle size. Nil = 1.0.
+    var measureScale: Float?
     /// Collision layers by floor height. Empty = no walkable clamp.
     var collisionLayers: [CollisionLayerData]
     /// Solid wall bricks (Lego-style). Empty = none.
@@ -88,6 +90,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationUp: SIMD3<Float>? = nil,
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
+        measureScale: Float? = nil,
         collisionLayers: [CollisionLayerData],
         collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
@@ -98,6 +101,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         self.orientationUp = orientationUp
         self.orientationForward = orientationForward
         self.moveSpeed = moveSpeed
+        self.measureScale = measureScale
         self.collisionLayers = collisionLayers
         self.collisionBlocks = collisionBlocks
         self.stairPolygons = stairPolygons
@@ -111,6 +115,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationUp: SIMD3<Float>? = nil,
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
+        measureScale: Float? = nil,
         collisionPoints: [SIMD3<Float>],
         collisionBlocks: [CollisionBlock] = [],
         stairVertices: [SIMD3<Float>]
@@ -126,6 +131,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationUp: orientationUp,
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
+            measureScale: measureScale,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
             collisionBlocks: collisionBlocks,
             stairPolygons: stairVertices.count >= 3 ? [stairVertices] : []
@@ -139,6 +145,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationUp: SIMD3<Float>? = nil,
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
+        measureScale: Float? = nil,
         collisionPoints: [SIMD3<Float>],
         collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
@@ -154,6 +161,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationUp: orientationUp,
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
+            measureScale: measureScale,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
             collisionBlocks: collisionBlocks,
             stairPolygons: stairPolygons.filter { $0.count >= 3 }
@@ -175,6 +183,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         var blocks: [CollisionBlock] = []
         var orientationVectors: [SIMD3<Float>] = []
         var moveSpeed: Float?
+        var measureScale: Float?
 
 
         func flushStairPolygon() {
@@ -256,10 +265,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
                 guard parts.count >= 3 else { continue }
                 orientationVectors.append(SIMD3(parts[0], parts[1], parts[2]))
             case .settings:
-                // move_speed <value>   OR a bare float
-                if parts.count >= 2, line.lowercased().contains("move") {
-                    moveSpeed = parts[1]
-                } else if parts.count >= 1 {
+                // Labels like "measure_scale" are not floats, so parts is usually just [value].
+                let loweredLine = line.lowercased()
+                if loweredLine.contains("measure"), let value = parts.last, value > 0 {
+                    measureScale = value
+                } else if loweredLine.contains("move"), let value = parts.last, value > 0 {
+                    moveSpeed = value
+                } else if parts.count >= 1, moveSpeed == nil, parts[0] > 0 {
                     moveSpeed = parts[0]
                 }
             case .collision:
@@ -334,6 +346,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationUp: orientationUp,
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
+            measureScale: measureScale,
             collisionLayers: layers,
             collisionBlocks: blocks,
             stairPolygons: stairPolygons
@@ -370,13 +383,23 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             ]
         }
 
-        if let moveSpeed {
+        if moveSpeed != nil || measureScale != nil {
             lines += [
                 "",
                 "[settings]",
-                "# move_speed meters_per_second (WASD / pad walk speed, not look sensitivity)",
-                String(format: "move_speed %.6f", moveSpeed),
             ]
+            if let moveSpeed {
+                lines += [
+                    "# move_speed meters_per_second (WASD / pad walk speed, not look sensitivity)",
+                    String(format: "move_speed %.6f", moveSpeed),
+                ]
+            }
+            if let measureScale {
+                lines += [
+                    "# measure_scale multiplies Measure pin / laser / reticle size (1.0 = default)",
+                    String(format: "measure_scale %.6f", measureScale),
+                ]
+            }
         }
 
         if collisionLayers.isEmpty {

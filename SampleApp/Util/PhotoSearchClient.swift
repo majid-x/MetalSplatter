@@ -93,7 +93,7 @@ struct PhotoSearchClient: Sendable {
         /// Direction from camera toward the clicked point (PlayCanvas semantics).
         viewDirection: SIMD3<Float>? = nil,
         maxResults: Int = PhotoSearchAPI.defaultMaxResults,
-        /// SPZ scenes are often inverted vs PLY — skip the usual display→API 180° Z undo.
+        /// Inverted vs original: off (default) = send display as-is; on = apply 180° Z undo.
         useSPZCoordinates: Bool = false
     ) async throws -> PhotoSearchResponse {
         try await search(
@@ -114,11 +114,12 @@ struct PhotoSearchClient: Sendable {
         maxResults: Int = PhotoSearchAPI.defaultMaxResults,
         useSPZCoordinates: Bool = false
     ) async throws -> PhotoSearchResponse {
+        // Inverted: SPZ off → raw display; SPZ on → apply PLY 180° Z undo.
         let toAPIPoint: (SIMD3<Float>) -> SIMD3<Float> = { point in
-            useSPZCoordinates ? point : PhotoSearchAPI.apiPoint(fromDisplayWorld: point)
+            useSPZCoordinates ? PhotoSearchAPI.apiPoint(fromDisplayWorld: point) : point
         }
         let toAPIDirection: (SIMD3<Float>) -> SIMD3<Float> = { direction in
-            useSPZCoordinates ? direction : PhotoSearchAPI.apiDirection(fromDisplayWorld: direction)
+            useSPZCoordinates ? PhotoSearchAPI.apiDirection(fromDisplayWorld: direction) : direction
         }
 
         let point = toAPIPoint(displayWorldPoint)

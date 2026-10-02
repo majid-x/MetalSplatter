@@ -16,7 +16,7 @@ struct ClientSceneView: View {
     var modelIdentifier: ModelIdentifier?
     /// From project `photo_api`. Nil hides Point Click / photo search.
     var photoAPIBaseURL: URL? = nil
-    /// From project `spz`. True → SPZ photo-API coords (skip PLY axis undo).
+    /// From project `spz`. Inverted: false = send display as-is; true = apply 180° Z undo.
     var photoSearchUsesSPZCoordinates: Bool = false
     /// From project `calibration`. True → PlayCanvas server-calibration (raw display coords).
     var photoSearchUsesServerCalibration: Bool = false
@@ -36,7 +36,6 @@ struct ClientSceneView: View {
 
     @State private var measureMode = false
     @State private var measureStatus = "Measure off"
-    @State private var measureSnappingEnabled = true
     @State private var measureDeleteMode = false
     @State private var measureLabelOverlays: [MetalKitSceneRenderer.MeasureLabelOverlay] = []
 
@@ -72,9 +71,9 @@ struct ClientSceneView: View {
         }
         if measureMode {
 #if os(macOS)
-            return "Measure on · click surfaces · New Chain / Snap / Delete / Undo · Esc exits look"
+            return "Measure on · click surfaces · New Chain / Delete / Undo · Esc exits look"
 #else
-            return "Measure on · tap surfaces · use sub-tools for Snap / Undo"
+            return "Measure on · tap surfaces · use Chain / Delete / Undo"
 #endif
         }
         if pointClickMode {
@@ -117,7 +116,6 @@ struct ClientSceneView: View {
                     onMeasureStateChanged: {
                         measureMode = rendererBox.renderer?.measureMode ?? false
                         measureStatus = rendererBox.renderer?.measureStatus ?? "Measure off"
-                        measureSnappingEnabled = rendererBox.renderer?.measureSnappingEnabled ?? true
                         measureDeleteMode = rendererBox.renderer?.measureDeleteMode ?? false
                         measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
                     },
@@ -200,16 +198,6 @@ struct ClientSceneView: View {
                                 MeasureSubButton(title: "Chain", systemImage: "plus.viewfinder", isActive: false, accent: .cyan) {
                                     rendererBox.renderer?.startNewMeasureChain()
                                     measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
-                                }
-                                MeasureSubButton(
-                                    title: "Snap",
-                                    systemImage: "magnet",
-                                    isActive: measureSnappingEnabled,
-                                    accent: Color(red: 0.3, green: 0.9, blue: 0.45)
-                                ) {
-                                    let next = !measureSnappingEnabled
-                                    rendererBox.renderer?.setMeasureSnappingEnabled(next)
-                                    measureSnappingEnabled = next
                                 }
                                 MeasureSubButton(
                                     title: "Delete",

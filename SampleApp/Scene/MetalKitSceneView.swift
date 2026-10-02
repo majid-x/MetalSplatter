@@ -30,6 +30,8 @@ struct MetalKitSceneView: View {
     @State private var hasMorePhotos = false
     @State private var isFetchingMorePhotos = false
     @State private var photoSearchUsesSPZCoordinates = false
+    @State private var photoAPIURLText = UserDefaults.standard.string(forKey: "SampleApp.photoAPIBaseURL")
+        ?? PhotoSearchAPI.baseURL.absoluteString
     @State private var showPhotoPanel = false
     @State private var isPlacingCollisionBlocks = false
     @State private var isSelectingCollisionBlocks = false
@@ -44,6 +46,8 @@ struct MetalKitSceneView: View {
     @State private var isSettingStartPoint = false
     @State private var showMoveSpeedControls = false
     @State private var moveSpeedSlider: Double = Double(Constants.cameraMoveSpeed)
+    @State private var showMeasureSizeControls = false
+    @State private var measureSizeSlider: Double = 1.0
     @State private var heightNudgeSensitivity: Double = 0.05
     @State private var cameraRotateSensitivity: Double = 90
     @State private var blockSize: Double = Double(Constants.collisionBlockWidth)
@@ -112,6 +116,8 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
+                                    applyPhotoAPIURLFromField()
                                 }
                                 rendererBox.renderer?.setPointClickMode(enabled)
                                 pointClickMode = enabled
@@ -143,6 +149,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                 }
                                 rendererBox.renderer?.setMeasureMode(enabled)
                                 measureMode = enabled
@@ -242,21 +249,39 @@ struct MetalKitSceneView: View {
                             }
 
                             if pointClickMode {
-                                Toggle(isOn: Binding(
-                                    get: { photoSearchUsesSPZCoordinates },
-                                    set: { enabled in
-                                        photoSearchUsesSPZCoordinates = enabled
-                                        rendererBox.renderer?.setPhotoSearchUsesSPZCoordinates(enabled)
-                                    }
-                                )) {
-                                    Text("SPZ coordinates")
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Photo API URL")
                                         .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.85))
+                                    TextField("https://…", text: $photoAPIURLText)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .frame(minWidth: 220, maxWidth: 320)
+#if os(iOS)
+                                        .textInputAutocapitalization(.never)
+                                        .keyboardType(.URL)
+                                        .autocorrectionDisabled()
+#endif
+                                        .onSubmit { applyPhotoAPIURLFromField() }
+                                        .onChange(of: photoAPIURLText) { _, _ in
+                                            applyPhotoAPIURLFromField()
+                                        }
+
+                                    Toggle(isOn: Binding(
+                                        get: { photoSearchUsesSPZCoordinates },
+                                        set: { enabled in
+                                            photoSearchUsesSPZCoordinates = enabled
+                                            rendererBox.renderer?.setPhotoSearchUsesSPZCoordinates(enabled)
+                                        }
+                                    )) {
+                                        Text("SPZ coordinates")
+                                            .font(.caption)
+                                    }
+                                    .toggleStyle(.switch)
+                                    .help("Off (default) = send display coords as-is. On = apply PLY 180° Z undo.")
                                 }
-                                .toggleStyle(.switch)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .padding(10)
                                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-                                .help("SPZ files are often inverted vs PLY. Turn on so photo search skips the PLY axis undo.")
                             }
 
                             Button(isPlacingCollisionBlocks ? "Adding Block…" : "Add Block Collision") {
@@ -269,6 +294,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     measureMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
@@ -301,6 +327,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
                                     rendererBox.renderer?.setCameraAnglesMode(false)
@@ -346,6 +373,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
                                     rendererBox.renderer?.setCameraAnglesMode(false)
@@ -367,6 +395,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
                                     rendererBox.renderer?.setCameraAnglesMode(false)
@@ -487,6 +516,7 @@ struct MetalKitSceneView: View {
                                     isSettingCameraAngles = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     rendererBox.renderer?.setCameraAnglesMode(false)
                                     rendererBox.renderer?.setStartPointMode(false)
                                 }
@@ -529,6 +559,7 @@ struct MetalKitSceneView: View {
                                     isRecordingClickCollision = false
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
                                     rendererBox.renderer?.setCollisionBlockPlacement(false)
@@ -545,12 +576,19 @@ struct MetalKitSceneView: View {
                             .tint(isSettingCameraAngles ? .cyan : .accentColor)
 
                             if isSettingCameraAngles {
-                                Text("Look until level & straight · Rotate if upside-down · Save locks angles only")
+                                Text("Look at a tilted side → Rotate ± (or Lock From View) rolls ONLY around where you look. Other sides stay. Save keeps it.")
                                     .font(.caption)
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 6)
                                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+
+                                Button("Lock From View") {
+                                    rendererBox.renderer?.lockCameraAnglesFromCurrentView(exitMode: false)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.cyan)
+                                .help("Roll the floor frame around your current look axis only — does not redefine forward.")
 
                                 HStack(spacing: 8) {
                                     Button("Rotate −") {
@@ -590,6 +628,7 @@ struct MetalKitSceneView: View {
                                     isRecordingClickCollision = false
                                     isSettingCameraAngles = false
                                     showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
                                     pointClickMode = false
                                     rendererBox.renderer?.setPointClickMode(false)
                                     rendererBox.renderer?.setCollisionBlockPlacement(false)
@@ -640,6 +679,7 @@ struct MetalKitSceneView: View {
                             Button(showMoveSpeedControls ? "Movement Speed: On" : "Movement Speed") {
                                 showMoveSpeedControls.toggle()
                                 if showMoveSpeedControls {
+                                    showMeasureSizeControls = false
                                     moveSpeedSlider = Double(rendererBox.renderer?.cameraMoveSpeed ?? Constants.cameraMoveSpeed)
                                 }
                             }
@@ -656,6 +696,34 @@ struct MetalKitSceneView: View {
                                     ) { value in
                                         rendererBox.renderer?.cameraMoveSpeed = Float(value)
                                     }
+                                }
+                                .padding(10)
+                                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            Button(showMeasureSizeControls ? "Measure Size: On" : "Measure Size") {
+                                showMeasureSizeControls.toggle()
+                                if showMeasureSizeControls {
+                                    showMoveSpeedControls = false
+                                    measureSizeSlider = Double(rendererBox.renderer?.measureOverlayScale ?? 1.0)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(showMeasureSizeControls ? Color(red: 0.2, green: 0.85, blue: 0.95) : .accentColor)
+
+                            if showMeasureSizeControls {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    NumericParamControl(
+                                        title: "Pins / lines / snap",
+                                        value: $measureSizeSlider,
+                                        range: 0.05...2.0,
+                                        suffix: "×"
+                                    ) { value in
+                                        rendererBox.renderer?.measureOverlayScale = Float(value)
+                                    }
+                                    Text("Lower for small splats. Saved in nav.txt.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.75))
                                 }
                                 .padding(10)
                                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
@@ -722,6 +790,7 @@ struct MetalKitSceneView: View {
                                 isSettingCameraAngles = false
                                 isSettingStartPoint = false
                                 showMoveSpeedControls = false
+                                showMeasureSizeControls = false
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(.green)
@@ -756,7 +825,7 @@ struct MetalKitSceneView: View {
                     isFetchingMore: isFetchingMorePhotos,
                     hasMore: hasMorePhotos,
                     statusText: pointClickStatus,
-                    apiBaseURL: PhotoSearchAPI.baseURL,
+                    apiBaseURL: rendererBox.renderer?.photoAPIBaseURL ?? PhotoSearchAPI.baseURL,
                     onClose: {
                         showPhotoPanel = false
                         rendererBox.renderer?.clearPhotoSearch()
@@ -784,12 +853,20 @@ struct MetalKitSceneView: View {
 #endif
     }
 
+    private func applyPhotoAPIURLFromField() {
+        let trimmed = photoAPIURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if rendererBox.renderer?.setPhotoAPIBaseURL(fromString: trimmed) == true {
+            UserDefaults.standard.set(trimmed, forKey: "SampleApp.photoAPIBaseURL")
+        }
+    }
+
     private var helpCaption: String {
         if pointClickMode {
             return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
         }
         if isSettingCameraAngles {
-            return "Set Camera Angles · look until level · Rotate ± with step slider if inverted · Save locks orientation"
+            return "Set Camera Angles · Rotate ± / Lock rolls only around where you look · Save keeps it"
         }
         if isSettingStartPoint {
             return "Set Start Point · walk into place · Up/Down for height · Save stores spawn pose"
