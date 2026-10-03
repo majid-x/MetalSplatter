@@ -27,7 +27,7 @@ struct ClientSceneView: View {
 
     @State private var rendererBox = ClientRendererBox()
     @State private var pointClickMode = false
-    @State private var pointClickStatus = "Point Click off"
+    @State private var pointClickStatus = "Search Image off"
     @State private var searchedPhotos: [PhotoSearchResult] = []
     @State private var isPhotoSearching = false
     @State private var hasMorePhotos = false
@@ -71,16 +71,16 @@ struct ClientSceneView: View {
         }
         if measureMode {
 #if os(macOS)
-            return "Measure on · click surfaces · New Chain / Delete / Undo · Esc exits look"
+            return "Measure on · click two points for a distance · drag to look · Delete / Undo"
 #else
-            return "Measure on · tap surfaces · use Chain / Delete / Undo"
+            return "Measure on · tap two points for a distance · drag to look · Delete / Undo"
 #endif
         }
         if pointClickMode {
 #if os(macOS)
-            return "Point Click on · click a surface to search photos · Esc exits look · tap tool again to leave"
+            return "Search Image on · click a surface to search · drag to look · tap tool again to leave"
 #else
-            return "Point Click on · tap a surface to search photos · tap tool again to leave"
+            return "Search Image on · tap a surface to search · drag to look · tap tool again to leave"
 #endif
         }
 #if os(macOS)
@@ -104,7 +104,7 @@ struct ClientSceneView: View {
                     rendererBox: rendererBox,
                     onPointClickStateChanged: {
                         pointClickMode = rendererBox.renderer?.pointClickMode ?? false
-                        pointClickStatus = rendererBox.renderer?.pointClickStatus ?? "Point Click off"
+                        pointClickStatus = rendererBox.renderer?.pointClickStatus ?? "Search Image off"
                         searchedPhotos = rendererBox.renderer?.searchedPhotos ?? []
                         isPhotoSearching = rendererBox.renderer?.isPhotoSearching ?? false
                         hasMorePhotos = rendererBox.renderer?.hasMorePhotos ?? false
@@ -140,7 +140,7 @@ struct ClientSceneView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         if supportsPhotoSearch {
                             ViewerToolButton(
-                                title: pointClickMode ? "Point Click On" : "Point Click",
+                                title: pointClickMode ? "Search Image On" : "Search Image",
                                 systemImage: "hand.tap",
                                 isActive: pointClickMode,
                                 accent: Color(red: 1.0, green: 0.55, blue: 0.22),
@@ -195,10 +195,6 @@ struct ClientSceneView: View {
 
                         if measureMode {
                             HStack(spacing: 6) {
-                                MeasureSubButton(title: "Chain", systemImage: "plus.viewfinder", isActive: false, accent: .cyan) {
-                                    rendererBox.renderer?.startNewMeasureChain()
-                                    measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
-                                }
                                 MeasureSubButton(
                                     title: "Delete",
                                     systemImage: "trash",
@@ -266,7 +262,7 @@ struct ClientSceneView: View {
                             }
                     }
 
-                    if supportsPhotoSearch && (pointClickMode || pointClickStatus != "Point Click off") {
+                    if supportsPhotoSearch && (pointClickMode || pointClickStatus != "Search Image off") {
                         Text(pointClickStatus)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.white)
@@ -295,14 +291,14 @@ struct ClientSceneView: View {
 
                 if isSelectingScreenshot {
                     ScreenshotSelectionOverlay(
-                        onComplete: { rect in
+                        onComplete: { rect, overlaySize in
                             let purpose = screenshotSelectionPurpose
                             isSelectingScreenshot = false
                             switch purpose {
                             case .productSearch:
-                                Task { await captureAndSearchProducts(selection: rect) }
+                                Task { await captureAndSearchProducts(selection: rect, overlaySize: overlaySize) }
                             case .saveToDisk:
-                                Task { await captureAndSaveScreenshot(selection: rect) }
+                                Task { await captureAndSaveScreenshot(selection: rect, overlaySize: overlaySize) }
                             }
                         },
                         onCancel: {
@@ -376,7 +372,7 @@ struct ClientSceneView: View {
         if pointClickMode {
             rendererBox.renderer?.setPointClickMode(false)
             pointClickMode = false
-            pointClickStatus = "Point Click off"
+            pointClickStatus = "Search Image off"
             showPhotoPanel = false
         }
         if measureMode {
@@ -391,7 +387,7 @@ struct ClientSceneView: View {
     }
 
     @MainActor
-    private func captureAndSaveScreenshot(selection: CGRect) async {
+    private func captureAndSaveScreenshot(selection: CGRect, overlaySize: CGSize) async {
         isSavingScreenshot = true
         toolHintOverride = "Capturing screenshot…"
 
@@ -402,7 +398,7 @@ struct ClientSceneView: View {
             return
         }
 
-        let viewSize = rendererBox.viewBoundsSize ?? renderer.drawableSize
+        let viewSize = screenshotViewSize(fallbackOverlay: overlaySize, renderer: renderer)
         guard viewSize.width > 1, viewSize.height > 1,
               let cropped = fullImage.cropped(to: selection, fromViewSize: viewSize),
               let pngData = cropped.pngDataCompatible() else {
@@ -468,7 +464,7 @@ struct ClientSceneView: View {
     }
 
     @MainActor
-    private func captureAndSearchProducts(selection: CGRect) async {
+    private func captureAndSearchProducts(selection: CGRect, overlaySize: CGSize) async {
         productSearchTask?.cancel()
 
         guard let renderer = rendererBox.renderer else {
@@ -489,7 +485,7 @@ struct ClientSceneView: View {
             return
         }
 
-        let viewSize = rendererBox.viewBoundsSize ?? renderer.drawableSize
+        let viewSize = screenshotViewSize(fallbackOverlay: overlaySize, renderer: renderer)
         guard viewSize.width > 1, viewSize.height > 1,
               let cropped = fullImage.cropped(to: selection, fromViewSize: viewSize) else {
             isProductSearching = false
@@ -514,6 +510,28 @@ struct ClientSceneView: View {
                 productStatusText = error.localizedDescription
             }
         }
+    }
+
+    /// Points-space size matching the selection overlay (same as PlayCanvas canvas client rect).
+    private func screenshotViewSize(fallbackOverlay: CGSize, renderer: MetalKitSceneRenderer) -> CGSize {
+        if fallbackOverlay.width > 1, fallbackOverlay.height > 1 {
+            return fallbackOverlay
+        }
+        if let bounds = rendererBox.viewBoundsSize, bounds.width > 1, bounds.height > 1 {
+            return bounds
+        }
+        let drawable = renderer.drawableSize
+#if os(macOS)
+        let scale = renderer.metalKitView.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+#else
+        let scale = renderer.metalKitView.contentScaleFactor
+#endif
+        if scale > 0, drawable.width > 1, drawable.height > 1 {
+            return CGSize(width: drawable.width / scale, height: drawable.height / scale)
+        }
+        return drawable
     }
 }
 
@@ -788,8 +806,16 @@ final class ClientCameraControlMTKView: MTKView {
     private var pressedKeys = Set<UInt16>()
     private var isMouseLookActive = false
     private var resignObserver: NSObjectProtocol?
+    /// Distinguishes a click (place measure / search point) from a drag-to-look.
+    private var toolMouseDownLocation: CGPoint?
+    private var didDragLookFromToolClick = false
+    private let toolDragLookThreshold: CGFloat = 4
 
     override var acceptsFirstResponder: Bool { true }
+
+    private var isToolClickMode: Bool {
+        renderer?.measureMode == true || renderer?.pointClickMode == true
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -822,19 +848,57 @@ final class ClientCameraControlMTKView: MTKView {
         window?.makeFirstResponder(self)
         let locationInView = convert(event.locationInWindow, from: nil)
 
-        if renderer?.measureMode == true {
+        if isToolClickMode {
+            // Defer the tool action until mouseUp so a drag can look instead.
             setMouseLookActive(false)
-            renderer?.handleMeasureClick(at: locationInView)
+            toolMouseDownLocation = locationInView
+            didDragLookFromToolClick = false
             return
         }
 
-        if renderer?.pointClickMode == true {
-            setMouseLookActive(false)
-            renderer?.handlePointClick(at: locationInView)
-            return
-        }
-
+        toolMouseDownLocation = nil
+        didDragLookFromToolClick = false
         setMouseLookActive(true)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isToolClickMode, toolMouseDownLocation != nil else {
+            super.mouseDragged(with: event)
+            return
+        }
+
+        if !didDragLookFromToolClick {
+            let locationInView = convert(event.locationInWindow, from: nil)
+            let start = toolMouseDownLocation ?? locationInView
+            if hypot(locationInView.x - start.x, locationInView.y - start.y) > toolDragLookThreshold {
+                didDragLookFromToolClick = true
+            }
+        }
+
+        if didDragLookFromToolClick {
+            // Invert drag-look: cursor right/down pushes the view the opposite way (grab-style).
+            renderer?.applyLookDelta(deltaX: -event.deltaX, deltaY: -event.deltaY)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            toolMouseDownLocation = nil
+            didDragLookFromToolClick = false
+        }
+
+        guard isToolClickMode,
+              toolMouseDownLocation != nil,
+              !didDragLookFromToolClick else {
+            return
+        }
+
+        let locationInView = convert(event.locationInWindow, from: nil)
+        if renderer?.measureMode == true {
+            renderer?.handleMeasureClick(at: locationInView)
+        } else if renderer?.pointClickMode == true {
+            renderer?.handlePointClick(at: locationInView)
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -854,6 +918,8 @@ final class ClientCameraControlMTKView: MTKView {
     override func mouseMoved(with event: NSEvent) {
         if renderer?.measureMode == true {
             if isMouseLookActive { setMouseLookActive(false) }
+            // Skip hover updates while drag-looking so the reticle doesn't fight the camera.
+            if toolMouseDownLocation != nil { return }
             let locationInView = convert(event.locationInWindow, from: nil)
             renderer?.updateMeasureHover(at: locationInView)
             return
@@ -1020,20 +1086,21 @@ final class ClientCameraControlMTKView: MTKView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard touchStartLocation != nil else { return }
-        guard renderer?.pointClickMode != true, renderer?.measureMode != true else { return }
         guard let touch = touches.first, let start = touchStartLocation else { return }
         let location = touch.location(in: self)
-        let delta = CGPoint(x: location.x - start.x, y: location.y - start.y)
-        if hypot(delta.x, delta.y) > tapMovementThreshold {
+        if hypot(location.x - start.x, location.y - start.y) > tapMovementThreshold {
             didDragLook = true
         }
+
+        let inToolClickMode = renderer?.measureMode == true || renderer?.pointClickMode == true
+        // In measure / image search, only look after the drag threshold so a tap still places a point.
+        guard didDragLook || !inToolClickMode else { return }
+
         let previous = touch.previousLocation(in: self)
         renderer?.applyLookDelta(
             deltaX: location.x - previous.x,
             deltaY: location.y - previous.y
         )
-        touchStartLocation = location
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {

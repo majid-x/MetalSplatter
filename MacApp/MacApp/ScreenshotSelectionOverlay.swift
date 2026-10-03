@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Darkened drag-to-select overlay for screenshot product search.
 struct ScreenshotSelectionOverlay: View {
-    var onComplete: (CGRect) -> Void
+    /// Selection rect + the overlay size it was measured in (points).
+    var onComplete: (_ selection: CGRect, _ overlaySize: CGSize) -> Void
     var onCancel: () -> Void
 
     @State private var startPoint: CGPoint?
@@ -42,7 +43,7 @@ struct ScreenshotSelectionOverlay: View {
                                 startPoint = nil
                                 currentPoint = nil
                                 if rect.width >= 8, rect.height >= 8 {
-                                    onComplete(rect)
+                                    onComplete(rect, geo.size)
                                 } else {
                                     onCancel()
                                 }

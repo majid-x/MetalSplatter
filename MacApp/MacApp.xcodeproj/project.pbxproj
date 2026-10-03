@@ -45,6 +45,7 @@
 		C10000000000000000000030 /* RemoteProject.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000020 /* RemoteProject.swift */; };
 		C10000000000000000000031 /* ProjectLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000021 /* ProjectLibrary.swift */; };
 		C10000000000000000000032 /* ProjectDownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000022 /* ProjectDownloadStore.swift */; };
+		C10000000000000000000035 /* ProjectDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000025 /* ProjectDownloadManager.swift */; };
 		C10000000000000000000033 /* FileAuthLocalStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000023 /* FileAuthLocalStorage.swift */; };
 		C10000000000000000000034 /* SandboxedZipExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000024 /* SandboxedZipExtractor.swift */; };
 /* End PBXBuildFile section */
@@ -87,6 +88,7 @@
 		C20000000000000000000020 /* RemoteProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProject.swift; sourceTree = "<group>"; };
 		C20000000000000000000021 /* ProjectLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectLibrary.swift; sourceTree = "<group>"; };
 		C20000000000000000000022 /* ProjectDownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDownloadStore.swift; sourceTree = "<group>"; };
+		C20000000000000000000025 /* ProjectDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDownloadManager.swift; sourceTree = "<group>"; };
 		C20000000000000000000023 /* FileAuthLocalStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAuthLocalStorage.swift; sourceTree = "<group>"; };
 		C20000000000000000000024 /* SandboxedZipExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxedZipExtractor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -126,6 +128,7 @@
 				C20000000000000000000020 /* RemoteProject.swift */,
 				C20000000000000000000021 /* ProjectLibrary.swift */,
 				C20000000000000000000022 /* ProjectDownloadStore.swift */,
+				C20000000000000000000025 /* ProjectDownloadManager.swift */,
 				C20000000000000000000023 /* FileAuthLocalStorage.swift */,
 				A20000000000000000000010 /* MacApp.entitlements */,
 				C20000000000000000000001 /* ClientSceneView.swift */,
@@ -286,6 +289,7 @@
 				C10000000000000000000030 /* RemoteProject.swift in Sources */,
 				C10000000000000000000031 /* ProjectLibrary.swift in Sources */,
 				C10000000000000000000032 /* ProjectDownloadStore.swift in Sources */,
+				C10000000000000000000035 /* ProjectDownloadManager.swift in Sources */,
 				C10000000000000000000033 /* FileAuthLocalStorage.swift in Sources */,
 				C10000000000000000000034 /* SandboxedZipExtractor.swift in Sources */,
 				C10000000000000000000001 /* ClientSceneView.swift in Sources */,

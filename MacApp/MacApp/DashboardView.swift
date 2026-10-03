@@ -18,6 +18,7 @@ struct DashboardView: View {
     @Environment(AuthManager.self) private var authManager
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var projectLibrary = ProjectLibrary()
+    @State private var downloadManager = ProjectDownloadManager.shared
 
     @State private var selectedTab: DashboardTab = .projects
     @State private var openedProject: RemoteProject?
@@ -67,6 +68,7 @@ struct DashboardView: View {
         }
         .background(Color.black)
         .preferredColorScheme(.dark)
+        .environment(downloadManager)
         .animation(.easeInOut(duration: 0.25), value: openedProject?.id)
         .sheet(isPresented: $isSearchPresented) {
             searchSheet
@@ -336,6 +338,7 @@ struct DashboardView: View {
                             }
                         },
                         onDeleteLocal: {
+                            downloadManager.stop(projectID: project.id)
                             ProjectDownloadStore.removeCachedPackage(for: project.id)
                             localCacheRevision += 1
                             refreshLocalStorageUsage()
@@ -456,6 +459,8 @@ private struct ProjectCardView: View {
     var onOpen: () -> Void = {}
     var onDeleteLocal: () -> Void = {}
 
+    @Environment(ProjectDownloadManager.self) private var downloadManager
+
     private var accent: [Color] {
         ProjectCardView.accent(for: project.id)
     }
@@ -463,6 +468,17 @@ private struct ProjectCardView: View {
     private var isCachedLocally: Bool {
         _ = cacheRevision
         return ProjectDownloadStore.hasCachedPackage(for: project)
+    }
+
+    private var downloadStatus: ProjectDownloadManager.Status {
+        downloadManager.status(for: project.id)
+    }
+
+    private var cardProgress: ProjectDownloadStore.Progress? {
+        if case .downloading(let progress) = downloadStatus {
+            return progress
+        }
+        return nil
     }
 
     var body: some View {
@@ -477,16 +493,31 @@ private struct ProjectCardView: View {
                         )
 
                         VStack(spacing: 10) {
-                            Image(systemName: isCachedLocally
-                                  ? "checkmark.circle"
-                                  : "icloud.and.arrow.down")
+                            Image(systemName: statusIcon)
                                 .font(.system(size: 28, weight: .ultraLight))
                                 .foregroundStyle(.white.opacity(0.85))
-                            Text(isCachedLocally
-                                  ? "Ready offline"
-                                  : "Cloud project")
+                            Text(statusLabel)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.45))
+
+                            if let progress = cardProgress {
+                                VStack(spacing: 6) {
+                                    if let fraction = progress.fraction {
+                                        ProgressView(value: fraction)
+                                            .progressViewStyle(.linear)
+                                            .tint(Color(red: 0.45, green: 0.82, blue: 0.92))
+                                    } else {
+                                        ProgressView()
+                                            .progressViewStyle(.linear)
+                                            .tint(Color(red: 0.45, green: 0.82, blue: 0.92))
+                                    }
+                                    Text(byteProgressLabel(progress))
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                }
+                                .padding(.horizontal, 18)
+                                .padding(.top, 2)
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -499,25 +530,48 @@ private struct ProjectCardView: View {
                 }
                 .buttonStyle(.plain)
 
-                Menu {
-                    Button("Delete", role: .destructive) {
-                        onDeleteLocal()
-                    }
-                    .disabled(!isCachedLocally)
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .frame(width: 28, height: 28)
-                        .background(.black.opacity(0.35), in: Circle())
-                        .overlay {
-                            Circle()
-                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                HStack(spacing: 6) {
+                    if case .downloading = downloadStatus {
+                        Button {
+                            downloadManager.stop(projectID: project.id)
+                        } label: {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 28, height: 28)
+                                .background(.black.opacity(0.35), in: Circle())
+                                .overlay {
+                                    Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                                }
                         }
+                        .buttonStyle(.plain)
+                    }
+
+                    Menu {
+                        if case .downloading = downloadStatus {
+                            Button("Stop Download", role: .destructive) {
+                                downloadManager.stop(projectID: project.id)
+                            }
+                        }
+                        Button("Delete", role: .destructive) {
+                            onDeleteLocal()
+                        }
+                        .disabled(!isCachedLocally && cardProgress == nil)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(width: 28, height: 28)
+                            .background(.black.opacity(0.35), in: Circle())
+                            .overlay {
+                                Circle()
+                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                            }
+                    }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
                 }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
                 .padding(10)
             }
 
@@ -546,6 +600,42 @@ private struct ProjectCardView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private var statusIcon: String {
+        if isCachedLocally { return "checkmark.circle" }
+        switch downloadStatus {
+        case .downloading: return "arrow.down.circle"
+        case .failed: return "exclamationmark.triangle"
+        case .idle: return "icloud.and.arrow.down"
+        }
+    }
+
+    private var statusLabel: String {
+        if isCachedLocally { return "Ready offline" }
+        switch downloadStatus {
+        case .downloading:
+            if let fraction = cardProgress?.fraction {
+                return "Downloading \(Int(fraction * 100))%"
+            }
+            return "Downloading…"
+        case .failed(let message):
+            return message
+        case .idle:
+            return "Cloud project"
+        }
+    }
+
+    private func byteProgressLabel(_ progress: ProjectDownloadStore.Progress) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        formatter.isAdaptive = true
+        let received = formatter.string(fromByteCount: progress.receivedBytes)
+        if let total = progress.totalBytes, total > 0 {
+            return "\(received) / \(formatter.string(fromByteCount: total))"
+        }
+        return received
     }
 
     private static func accent(for id: UUID) -> [Color] {

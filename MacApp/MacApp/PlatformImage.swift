@@ -56,6 +56,8 @@ extension PlatformImage {
         height: Int,
         bytesPerRow: Int
     ) -> PlatformImage? {
+        // Metal drawable / render-target blit: row 0 is the top of the image (unlike WebGL).
+        // Do not vertically flip — that was mapping selection boxes to the wrong region.
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         bgraData.withUnsafeBytes { raw in
             guard let src = raw.bindMemory(to: UInt8.self).baseAddress else { return }

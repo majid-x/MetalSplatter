@@ -60,7 +60,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Same pick in model/depth-unprojection space (for drawing the marker with the splat view matrix).
     private var lastPickedModelCoordinate: SIMD3<Float>?
     /// Status line shown next to the Point Click UI.
-    var pointClickStatus: String = "Point Click off"
+    var pointClickStatus: String = "Search Image off"
     /// Photos returned for the latest point-click search.
     var searchedPhotos: [PhotoSearchResult] = []
     /// True while a photo API request is in flight.
@@ -81,7 +81,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Screen-space distance labels for SwiftUI overlay.
     private(set) var measureLabelOverlays: [MeasureLabelOverlay] = []
     private var measureNodes: [MeasureNode] = []
-    private var measureIsFirstPointOfSession = true
     private var measureHoverModelPoint: SIMD3<Float>?
     private var measureDeleteHoverIndex: Int?
     /// Last cursor in view coords (PlayCanvas keeps mouseX/Y and re-picks every tick).
@@ -105,7 +104,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     struct MeasureNode {
         /// Model / depth-unprojection space (for Metal draw).
         var modelPosition: SIMD3<Float>
-        /// Linked to previous unless this starts a new chain.
+        /// True when this pin opens a new 2-point chain (not linked to previous).
         var isStartOfChain: Bool
         /// Distance to previous linked node in meters (nil for chain starts).
         var distanceToPrevious: Float?
@@ -268,7 +267,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if pointClickMode {
             pointClickStatus = "Click a surface to find photos"
         } else {
-            pointClickStatus = "Point Click off"
+            pointClickStatus = "Search Image off"
         }
         onPointClickStateChanged?()
         onMeasureStateChanged?()
@@ -383,7 +382,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func setPointClickMode(_ enabled: Bool) {
         guard photoAPIBaseURL != nil || !enabled else {
             pointClickMode = false
-            pointClickStatus = "Point Click off"
+            pointClickStatus = "Search Image off"
             onPointClickStateChanged?()
             return
         }
@@ -404,7 +403,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             pointClickStatus = "Click a surface to find photos"
         } else {
             lastPickedModelCoordinate = nil
-            pointClickStatus = "Point Click off"
+            pointClickStatus = "Search Image off"
             photoSearchTask?.cancel()
             photoSearchTask = nil
             isPhotoSearching = false
@@ -427,8 +426,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         lastMeasureHoverViewPoint = nil
         lastMeasureHoverPickTime = 0
         if enabled {
-            measureIsFirstPointOfSession = true
-            measureStatus = "Measure on · click surfaces"
+            measureStatus = "Measure on · click two points"
         } else {
             measureStatus = measureNodes.isEmpty ? "Measure off" : "Measure off · \(measureNodes.count) points kept"
         }
@@ -447,15 +445,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         guard measureMode else { return }
         measureDeleteMode = enabled
         measureDeleteHoverIndex = nil
-        measureStatus = enabled ? "Delete mode · click a pin" : "Measure on · click surfaces"
-        onMeasureStateChanged?()
-    }
-
-    func startNewMeasureChain() {
-        guard measureMode else { return }
-        measureIsFirstPointOfSession = true
-        measureDeleteMode = false
-        measureStatus = "New chain · click first point"
+        measureStatus = enabled ? "Delete mode · click a pin" : "Measure on · click two points"
         onMeasureStateChanged?()
     }
 
@@ -463,10 +453,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func undoMeasurePoint() -> Bool {
         guard !measureNodes.isEmpty else { return false }
         measureNodes.removeLast()
-        measureIsFirstPointOfSession = measureNodes.isEmpty
-        measureStatus = measureNodes.isEmpty
-            ? (measureMode ? "Measure on · click surfaces" : "Measure off")
-            : String(format: "Undid point · %d left", measureNodes.count)
+        if measureNodes.isEmpty {
+            measureStatus = measureMode ? "Measure on · click two points" : "Measure off"
+        } else if measureNodes.last?.isStartOfChain == true {
+            measureStatus = String(format: "Undid point · click second point · %d left", measureNodes.count)
+        } else {
+            measureStatus = String(format: "Undid point · %d left", measureNodes.count)
+        }
         refreshMeasureLabels()
         onMeasureStateChanged?()
         return true
@@ -477,7 +470,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureHoverModelPoint = nil
         measureDeleteHoverIndex = nil
         lastMeasureHoverViewPoint = nil
-        measureIsFirstPointOfSession = true
         measureLabelOverlays = []
     }
 
@@ -543,11 +535,12 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             measureNodes.removeFirst()
         }
 
+        // Fixed 2-click chains: open start → complete segment → next click starts a new chain.
         let isStart: Bool
         var distance: Float?
-        if measureIsFirstPointOfSession || measureNodes.isEmpty {
-            isStart = true
-        } else if let previous = measureNodes.last, canLink(toPrevious: previous.modelPosition) {
+        if let previous = measureNodes.last,
+           previous.isStartOfChain,
+           canLink(toPrevious: previous.modelPosition) {
             isStart = false
             distance = simd_distance(previous.modelPosition, modelPoint) * measureCalibrationFactor
         } else {
@@ -559,12 +552,11 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             isStartOfChain: isStart,
             distanceToPrevious: distance
         ))
-        measureIsFirstPointOfSession = false
 
         if let distance {
             measureStatus = "Segment \(Self.formatMeasureDistance(meters: distance)) · \(measureNodes.count) points"
         } else {
-            measureStatus = String(format: "Point placed · %d points", measureNodes.count)
+            measureStatus = String(format: "Point placed · click second point · %d points", measureNodes.count)
         }
         refreshMeasureLabels()
         onMeasureStateChanged?()
@@ -764,8 +756,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             )
 
             if !measureDeleteMode,
-               !measureIsFirstPointOfSession,
                let last = measureNodes.last,
+               last.isStartOfChain,
                canLink(toPrevious: last.modelPosition) {
                 overlay.drawSegments(
                     segments: [(last.modelPosition, hover)],

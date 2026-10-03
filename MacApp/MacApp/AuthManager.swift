@@ -26,9 +26,11 @@ final class AuthManager {
     private(set) var isBootstrapping = true
     private(set) var statusMessage: String?
 
+    /// Only clear the local session when the user taps Sign Out — never on auto refresh / expiry.
+    private var userInitiatedSignOut = false
+
     var isAuthenticated: Bool {
-        guard let session else { return false }
-        return !session.isExpired
+        session != nil
     }
 
     var displayName: String {
@@ -73,10 +75,12 @@ final class AuthManager {
 
     func signOut() async {
         statusMessage = nil
+        userInitiatedSignOut = true
         do {
             try await client.auth.signOut()
             session = nil
         } catch {
+            userInitiatedSignOut = false
             statusMessage = error.localizedDescription
         }
     }
@@ -91,19 +95,42 @@ final class AuthManager {
 
             switch event {
             case .initialSession:
-                // Local session may be expired; don't treat it as signed-in until refreshed.
-                if let session, !session.isExpired {
-                    self.session = session
-                } else {
-                    self.session = nil
-                }
-                isBootstrapping = false
+                await handleInitialSession(session)
             case .signedIn, .tokenRefreshed, .userUpdated:
-                self.session = session
+                if let session {
+                    self.session = session
+                }
             case .signedOut:
-                self.session = nil
+                // Ignore SDK auto-logout (expired token / refresh). Only clear on explicit Sign Out.
+                if userInitiatedSignOut {
+                    self.session = nil
+                    userInitiatedSignOut = false
+                }
             default:
                 break
+            }
+        }
+    }
+
+    private func handleInitialSession(_ session: Session?) async {
+        defer { isBootstrapping = false }
+
+        guard var session else {
+            self.session = nil
+            return
+        }
+
+        // Always keep a restored session so we don't flash the login screen.
+        self.session = session
+
+        // Access token may be expired while the refresh token is still valid.
+        if session.isExpired {
+            do {
+                session = try await client.auth.refreshSession()
+                self.session = session
+            } catch {
+                // Keep the restored session; next API call / token refresh can recover.
+                // Do not force the user back to login.
             }
         }
     }

@@ -13,10 +13,21 @@ struct ProjectViewerView: View {
         case failed(String)
     }
 
+    @Environment(ProjectDownloadManager.self) private var downloadManager
     @State private var phase: Phase = .downloading
     @State private var model: ModelIdentifier?
     @State private var pulse = false
-    @State private var downloadProgress: ProjectDownloadStore.Progress?
+
+    private var downloadStatus: ProjectDownloadManager.Status {
+        downloadManager.status(for: project.id)
+    }
+
+    private var downloadProgress: ProjectDownloadStore.Progress? {
+        if case .downloading(let progress) = downloadStatus {
+            return progress
+        }
+        return nil
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -181,7 +192,7 @@ struct ProjectViewerView: View {
                     .progressViewStyle(.linear)
                     .tint(Color(red: 0.35, green: 0.72, blue: 0.85))
                     .frame(maxWidth: 280)
-            } else if downloadProgress != nil {
+            } else if downloadProgress != nil || isActivelyDownloading {
                 ProgressView()
                     .progressViewStyle(.linear)
                     .tint(Color(red: 0.35, green: 0.72, blue: 0.85))
@@ -193,7 +204,21 @@ struct ProjectViewerView: View {
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.55))
             }
+
+            if case .downloading = downloadStatus {
+                Button("Stop") {
+                    downloadManager.stop(projectID: project.id)
+                    onBack()
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
+            }
         }
+    }
+
+    private var isActivelyDownloading: Bool {
+        if case .downloading = downloadStatus { return true }
+        return false
     }
 
     private var loaderTitle: String {
@@ -212,7 +237,7 @@ struct ProjectViewerView: View {
             if ProjectDownloadStore.hasCachedPackage(for: project), downloadProgress == nil {
                 return "Opening your saved copy…"
             }
-            return "Downloading your project…"
+            return "Downloading in the background — safe to return to Projects."
         case .unpacking:
             return "Getting everything ready…"
         case .loadingScene:
@@ -244,28 +269,24 @@ struct ProjectViewerView: View {
     private func openPackage(forceRedownload: Bool = false) async {
         phase = .downloading
         model = nil
-        downloadProgress = nil
-
-        if forceRedownload {
-            ProjectDownloadStore.removeCachedPackage(for: project.id)
-        }
 
         do {
-            let zipURL = try await ProjectDownloadStore.ensureLocalPackage(for: project) { progress in
-                Task { @MainActor in
-                    downloadProgress = progress
-                }
-            }
+            let zipURL = try await downloadManager.localPackage(
+                for: project,
+                forceRedownload: forceRedownload
+            )
             let extractDir = try ProjectDownloadStore.extractDirectory(for: project.id)
 
             phase = .unpacking
-            downloadProgress = nil
             let package = try await Task.detached(priority: .userInitiated) {
                 try ScenePackageLoader.load(from: zipURL, extractDirectory: extractDir)
             }.value
 
             model = .gaussianSplat(package.modelURL, navigation: package.navigation)
             phase = .loadingScene
+        } catch is CancellationError {
+            // View went away, or Stop — download may still be running unless stopped.
+            return
         } catch {
             phase = .failed(friendlyMessage(for: error))
         }

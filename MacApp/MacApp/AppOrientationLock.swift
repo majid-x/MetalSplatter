@@ -39,5 +39,14 @@ final class MacAppOrientationDelegate: NSObject, UIApplicationDelegate {
     ) -> UIInterfaceOrientationMask {
         AppOrientationLock.mask
     }
+
+    /// Required so background project downloads can finish / report progress after suspension.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        BackgroundPackageDownloader.shared.setBackgroundCompletionHandler(completionHandler)
+    }
 }
 #endif
