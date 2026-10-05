@@ -31,6 +31,22 @@ func matrix_perspective_right_hand(fovyRadians fovy: Float, aspectRatio: Float, 
                                          vector_float4( 0,  0, zs * nearZ, 0)))
 }
 
+/// Right-handed orthographic projection. `halfHeight` is half the visible world height.
+func matrix_orthographic_right_hand(halfHeight: Float, aspectRatio: Float, nearZ: Float, farZ: Float) -> matrix_float4x4 {
+    let halfWidth = halfHeight * aspectRatio
+    let r = halfWidth
+    let t = halfHeight
+    let invW = 1 / max(2 * r, 1e-5)
+    let invH = 1 / max(2 * t, 1e-5)
+    let invZ = 1 / (nearZ - farZ)
+    return matrix_float4x4(columns: (
+        SIMD4<Float>(2 * invW, 0, 0, 0),
+        SIMD4<Float>(0, 2 * invH, 0, 0),
+        SIMD4<Float>(0, 0, invZ, 0),
+        SIMD4<Float>(0, 0, nearZ * invZ, 1)
+    ))
+}
+
 extension SIMD4 where Scalar == Float {
     var xyz: SIMD3<Float> { SIMD3(x, y, z) }
 }

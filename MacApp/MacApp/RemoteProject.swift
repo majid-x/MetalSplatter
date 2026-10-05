@@ -14,6 +14,8 @@ struct RemoteProject: Identifiable, Hashable, Sendable {
     let useServerCalibration: Bool
     /// Scale factor for Measure tool: `displayMeters = rawMeters * measureFactor` (Supabase `measur_factor`).
     let measureFactor: Float
+    /// WASD walk speed in m/s from Supabase `move_speed`. Nil → app default (not nav.txt).
+    let moveSpeed: Float?
     let createdAt: Date?
 
     var categoryLabel: String {
@@ -38,6 +40,7 @@ extension RemoteProject: Decodable {
         case spz
         case calibration
         case measurFactor = "measur_factor"
+        case moveSpeed = "move_speed"
         case createdAt = "created_at"
     }
 
@@ -107,6 +110,15 @@ extension RemoteProject: Decodable {
             measureFactor = value
         } else {
             measureFactor = 1.0
+        }
+
+        // NULL / missing / non-positive → nil (viewer uses Constants.cameraMoveSpeed).
+        if let value = try container.decodeIfPresent(Double.self, forKey: .moveSpeed), value > 0 {
+            moveSpeed = Float(value)
+        } else if let value = try container.decodeIfPresent(Float.self, forKey: .moveSpeed), value > 0 {
+            moveSpeed = value
+        } else {
+            moveSpeed = nil
         }
 
         createdAt = Self.decodeDate(from: container)

@@ -19,7 +19,7 @@ final class ProjectLibrary {
             let userKey = userId.uuidString.lowercased()
             let rows: [RemoteProject] = try await client
                 .from("projects")
-                .select("id, user_id, project_name, project_url, photo_api, spz, calibration, measur_factor, created_at")
+                .select("id, user_id, project_name, project_url, photo_api, spz, calibration, measur_factor, move_speed, created_at")
                 .eq("user_id", value: userKey)
                 .order("created_at", ascending: false)
                 .execute()

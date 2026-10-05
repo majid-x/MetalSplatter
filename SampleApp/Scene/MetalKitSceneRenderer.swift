@@ -196,6 +196,41 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var isSettingCameraAngles = false
     /// Authoring mode: position + height the spawn point, then Save.
     var isSettingStartPoint = false
+    /// Top-down roof-cut tool: adjust height, then cut and view from above.
+    enum TopDownPhase: Equatable {
+        case off
+        /// Move up/down to choose the roof cut height (live clip preview).
+        case adjusting
+        /// Roof removed; free-fly inspection above the cut.
+        case cut
+    }
+    private(set) var topDownPhase: TopDownPhase = .off
+    private(set) var topDownStatus: String = "Top Down off"
+    var onTopDownStateChanged: (() -> Void)?
+    private var topDownSavedPosition = SIMD3<Float>.zero
+    private var topDownSavedYaw: Float = 0
+    private var topDownSavedPitch: Float = 0
+    private var topDownCutHeight: Float = 0
+    /// Half-extent of the orthographic top-down frustum (meters). Smaller = more zoomed in.
+    var topDownOrthoHalfExtent: Float = 10 {
+        didSet {
+            let clamped = min(Self.topDownOrthoMax, max(Self.topDownOrthoMin, topDownOrthoHalfExtent))
+            if clamped != topDownOrthoHalfExtent {
+                topDownOrthoHalfExtent = clamped
+            }
+        }
+    }
+    private static let topDownOrthoMin: Float = 0.001
+    private static let topDownOrthoMax: Float = 500
+    /// Persisted cut + framing written into nav.txt / DB on Save / Download.
+    private var savedTopDownCutHeight: Float?
+    private var savedTopDownOrthoHalfExtent: Float?
+    private var savedTopDownOrthoZoomIn: Float?
+    private var savedTopDownOrthoZoomOut: Float?
+    private var savedTopDownYaw: Float?
+    private var savedTopDownPitch: Float?
+    private var savedTopDownCenter: SIMD3<Float>?
+    private var lastTopDownUINotifyTime: CFTimeInterval = 0
     /// WASD / pad walk speed (m/s). Look sensitivity is separate and not stored here.
     var cameraMoveSpeed: Float = Constants.cameraMoveSpeed
     private var collisionBlockRenderer: CollisionBlockRenderer?
@@ -262,6 +297,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         usesCustomOrientation = false
         isSettingCameraAngles = false
         isSettingStartPoint = false
+        topDownPhase = .off
+        topDownStatus = "Top Down off"
+        savedTopDownCutHeight = nil
+        savedTopDownOrthoHalfExtent = nil
+        savedTopDownOrthoZoomIn = nil
+        savedTopDownOrthoZoomOut = nil
+        savedTopDownYaw = nil
+        savedTopDownPitch = nil
+        savedTopDownCenter = nil
         cameraMoveSpeed = Constants.cameraMoveSpeed
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
@@ -369,7 +413,26 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
         rebuildStairRegions()
 
-        applyStairOrGroundHeight()
+        // Restore authored top-down cut + framing when present (keep it on screen).
+        if let cutHeight = data.topDownCutHeight {
+            savedTopDownCutHeight = cutHeight
+            savedTopDownOrthoHalfExtent = data.topDownOrthoHalfExtent
+            savedTopDownOrthoZoomIn = data.topDownOrthoZoomIn
+            savedTopDownOrthoZoomOut = data.topDownOrthoZoomOut
+            savedTopDownYaw = data.topDownYawRadians
+            savedTopDownPitch = data.topDownPitchRadians
+            savedTopDownCenter = data.topDownCenter
+            restoreSavedTopDownView()
+        } else {
+            savedTopDownCutHeight = nil
+            savedTopDownOrthoHalfExtent = nil
+            savedTopDownOrthoZoomIn = nil
+            savedTopDownOrthoZoomOut = nil
+            savedTopDownYaw = nil
+            savedTopDownPitch = nil
+            savedTopDownCenter = nil
+            applyStairOrGroundHeight()
+        }
     }
 
     private func applyOrientation(up: SIMD3<Float>?, forward: SIMD3<Float>?) {
@@ -622,6 +685,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             setStairRecording(false)
         }
 
+        // Persist the current top-down cut + zoom framing for nav.txt / DB.
+        if topDownPhase == .cut {
+            captureSavedTopDownFromCurrentView()
+            walkableBounds = WalkableCollisionBounds.fromPoints(loadedCollisionPoints)
+            rebuildStairRegions()
+            topDownStatus = String(
+                format: "Top Down saved · cut %.2f m · zoom %.1f m · Download TXT for DB",
+                topDownCutHeight,
+                topDownOrthoHalfExtent
+            )
+            onTopDownStateChanged?()
+            return
+        }
+
         walkableBounds = WalkableCollisionBounds.fromPoints(loadedCollisionPoints)
         rebuildStairRegions()
 
@@ -656,6 +733,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             stairs.append(recordedStairPoints)
         }
 
+        // Export only values explicitly saved via Save Cut / zoom buttons (not live camera).
         return SceneNavigationData(
             startPosition: savedStartPosition,
             startYawRadians: savedStartYaw,
@@ -664,6 +742,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             orientationForward: usesCustomOrientation ? navigationForward : nil,
             moveSpeed: cameraMoveSpeed,
             measureScale: measureOverlayScale,
+            topDownCutHeight: savedTopDownCutHeight,
+            topDownOrthoHalfExtent: savedTopDownOrthoHalfExtent,
+            topDownOrthoZoomIn: savedTopDownOrthoZoomIn,
+            topDownOrthoZoomOut: savedTopDownOrthoZoomOut,
+            topDownYawRadians: savedTopDownYaw,
+            topDownPitchRadians: savedTopDownPitch,
+            topDownCenter: savedTopDownCenter,
             collisionPoints: collision,
             collisionBlocks: collisionBlocks,
             stairPolygons: stairs
@@ -709,6 +794,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func setMeasureMode(_ enabled: Bool) {
         if enabled {
             setPointClickMode(false)
+            if topDownPhase != .off { setTopDownMode(false) }
             isSettingCameraAngles = false
             isSettingStartPoint = false
             setCollisionBlockPlacement(false)
@@ -730,6 +816,218 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         refreshMeasureLabels()
         onMeasureStateChanged?()
         onPointClickStateChanged?()
+    }
+
+    // MARK: Top-down roof cut
+
+    func setTopDownMode(_ enabled: Bool) {
+        if enabled {
+            if topDownPhase != .off { return }
+            setPointClickMode(false)
+            setMeasureMode(false)
+            isSettingCameraAngles = false
+            isSettingStartPoint = false
+            setCollisionBlockPlacement(false)
+            setCollisionBlockSelecting(false)
+            setCollisionRecording(false)
+            setClickCollisionRecording(false)
+            setStairRecording(false)
+
+            topDownSavedPosition = cameraPosition
+            topDownSavedYaw = cameraYaw
+            topDownSavedPitch = cameraPitch
+            topDownPhase = .adjusting
+            topDownCutHeight = heightAlongUp(cameraPosition)
+            topDownStatus = String(format: "Top Down · adjust height (%.2f m) · Cut removes the roof", topDownCutHeight)
+            syncTopDownClipPlane()
+        } else {
+            guard topDownPhase != .off else { return }
+            exitTopDownMode(restoreCamera: true)
+        }
+        onTopDownStateChanged?()
+    }
+
+    /// Freeze the cut at the current camera height and open a free-orbit view above it.
+    func applyTopDownCut() {
+        guard topDownPhase == .adjusting || topDownPhase == .cut else { return }
+        topDownCutHeight = heightAlongUp(cameraPosition)
+        topDownPhase = .cut
+        syncTopDownClipPlane()
+
+        // Start above the cut looking down; user can then drag to tilt and fly freely.
+        placeInitialTopDownCutCamera()
+        topDownStatus = String(
+            format: "Top Down cut · roof at %.2f m · drag looks · WASD flies · Q/E up/down · Save for DB",
+            topDownCutHeight
+        )
+        onTopDownStateChanged?()
+    }
+
+    /// Save roof cut + current camera pose (Mac top-down start) for nav.txt.
+    /// Download TXT picks this up immediately — no extra green Save needed.
+    func saveTopDownCutForExport() {
+        guard topDownPhase == .cut else { return }
+        refreshTopDownOrthoFromCamera()
+        savedTopDownCutHeight = topDownCutHeight
+        savedTopDownOrthoHalfExtent = topDownOrthoHalfExtent
+        // Exact pose where Mac Top Down should open.
+        savedTopDownYaw = cameraYaw
+        savedTopDownPitch = cameraPitch
+        savedTopDownCenter = cameraPosition
+        topDownStatus = String(
+            format: "Cut saved · roof %.2f m · start (%.2f, %.2f, %.2f) · Download TXT anytime",
+            topDownCutHeight,
+            cameraPosition.x,
+            cameraPosition.y,
+            cameraPosition.z
+        )
+        onTopDownStateChanged?()
+    }
+
+    /// Save current view width as the closest zoom allowed in the Mac app.
+    func saveTopDownMaxZoomIn() {
+        guard topDownPhase == .cut else { return }
+        refreshTopDownOrthoFromCamera()
+        if savedTopDownCutHeight == nil {
+            savedTopDownCutHeight = topDownCutHeight
+            savedTopDownYaw = cameraYaw
+            savedTopDownPitch = cameraPitch
+            savedTopDownCenter = cameraPosition
+        }
+        savedTopDownOrthoZoomIn = topDownOrthoHalfExtent
+        topDownStatus = String(
+            format: "Max zoom in saved · %.2f m view width · Download TXT anytime",
+            topDownOrthoHalfExtent
+        )
+        onTopDownStateChanged?()
+    }
+
+    /// Save current view width as the farthest zoom allowed in the Mac app.
+    func saveTopDownMaxZoomOut() {
+        guard topDownPhase == .cut else { return }
+        refreshTopDownOrthoFromCamera()
+        if savedTopDownCutHeight == nil {
+            savedTopDownCutHeight = topDownCutHeight
+            savedTopDownYaw = cameraYaw
+            savedTopDownPitch = cameraPitch
+            savedTopDownCenter = cameraPosition
+        }
+        savedTopDownOrthoZoomOut = topDownOrthoHalfExtent
+        topDownStatus = String(
+            format: "Max zoom out saved · %.2f m view width · Download TXT anytime",
+            topDownOrthoHalfExtent
+        )
+        onTopDownStateChanged?()
+    }
+
+    /// Slider dolly: move camera height above the cut to match a view-width proxy.
+    func setTopDownViewWidth(_ halfExtent: Float) {
+        topDownOrthoHalfExtent = halfExtent
+        guard topDownPhase == .cut else { return }
+        setHeightAlongUp(topDownCutHeight + topDownHoverDistance)
+        onTopDownStateChanged?()
+    }
+
+    private func refreshTopDownOrthoFromCamera() {
+        let heightAboveCut = abs(heightAlongUp(cameraPosition) - topDownCutHeight)
+        let fovy = Float(Constants.fovy.radians)
+        topDownOrthoHalfExtent = max(Self.topDownOrthoMin, heightAboveCut * tan(fovy * 0.5))
+    }
+
+    private func captureSavedTopDownFromCurrentView() {
+        refreshTopDownOrthoFromCamera()
+        savedTopDownCutHeight = topDownCutHeight
+        savedTopDownOrthoHalfExtent = topDownOrthoHalfExtent
+        savedTopDownYaw = cameraYaw
+        savedTopDownPitch = cameraPitch
+        savedTopDownCenter = cameraPosition
+    }
+
+    private func restoreSavedTopDownView() {
+        guard let cutHeight = savedTopDownCutHeight else { return }
+        if topDownPhase == .off {
+            topDownSavedPosition = cameraPosition
+            topDownSavedYaw = cameraYaw
+            topDownSavedPitch = cameraPitch
+        }
+        topDownCutHeight = cutHeight
+        if let ortho = savedTopDownOrthoHalfExtent, ortho > 0 {
+            topDownOrthoHalfExtent = ortho
+        }
+        if let yaw = savedTopDownYaw {
+            cameraYaw = yaw
+        }
+        if let pitch = savedTopDownPitch {
+            cameraPitch = pitch
+        }
+        if let center = savedTopDownCenter {
+            cameraPosition = center
+        } else {
+            placeInitialTopDownCutCamera()
+        }
+        topDownPhase = .cut
+        syncTopDownClipPlane()
+        topDownStatus = String(
+            format: "Top Down cut · roof at %.2f m · drag looks · WASD flies · Q/E up/down · Save for DB",
+            topDownCutHeight
+        )
+        onTopDownStateChanged?()
+    }
+
+    /// Back to height-adjusting (keeps tool on) after a cut.
+    func clearTopDownCut() {
+        guard topDownPhase == .cut else { return }
+        topDownPhase = .adjusting
+        setHeightAlongUp(topDownCutHeight)
+        cameraPitch = topDownSavedPitch
+        cameraYaw = topDownSavedYaw
+        syncTopDownClipPlane()
+        topDownStatus = String(format: "Top Down · adjust height (%.2f m) · Cut removes the roof", topDownCutHeight)
+        onTopDownStateChanged?()
+    }
+
+    func nudgeTopDownHeight(_ deltaMeters: Float) {
+        guard topDownPhase == .adjusting else { return }
+        cameraPosition += navigationUp * deltaMeters
+        topDownCutHeight = heightAlongUp(cameraPosition)
+        syncTopDownClipPlane()
+        topDownStatus = String(format: "Top Down · adjust height (%.2f m) · Cut removes the roof", topDownCutHeight)
+        onTopDownStateChanged?()
+    }
+
+    private func exitTopDownMode(restoreCamera: Bool) {
+        topDownPhase = .off
+        topDownStatus = "Top Down off"
+        (modelRenderer as? SplatRenderer)?.modelClipPlane = nil
+        if restoreCamera {
+            cameraPosition = topDownSavedPosition
+            cameraYaw = topDownSavedYaw
+            cameraPitch = topDownSavedPitch
+            persistentFloorY = heightAlongUp(cameraPosition)
+        }
+    }
+
+    /// Model-space plane that discards everything above `cutHeight` along navigation up.
+    private func modelClipPlane(cutHeight: Float) -> SIMD4<Float> {
+        // worldPos = Cal * modelPos when legacy PLY calibration is in the view matrix.
+        let cal = usesCustomOrientation
+            ? matrix_identity_float4x4
+            : matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 0, 1))
+        let up4 = SIMD4<Float>(navigationUp.x, navigationUp.y, navigationUp.z, 0)
+        let n = simd_normalize((cal.transpose * up4).xyz)
+        return SIMD4<Float>(n.x, n.y, n.z, -cutHeight)
+    }
+
+    private func syncTopDownClipPlane() {
+        guard let splat = modelRenderer as? SplatRenderer else { return }
+        switch topDownPhase {
+        case .off:
+            splat.modelClipPlane = nil
+        case .adjusting:
+            splat.modelClipPlane = modelClipPlane(cutHeight: heightAlongUp(cameraPosition))
+        case .cut:
+            splat.modelClipPlane = modelClipPlane(cutHeight: topDownCutHeight)
+        }
     }
 
     func clearMeasureGeometry() {
@@ -1660,11 +1958,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private var projectionMatrix: matrix_float4x4 {
-        matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
-                                      aspectRatio: Float(drawableSize.width / max(drawableSize.height, 1)),
+        let aspect = Float(drawableSize.width / max(drawableSize.height, 1))
+        // Use perspective even for top-down: Gaussian covariance projection assumes perspective
+        // focals. Ortho made close zooms explode into huge soft blobs.
+        return matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
+                                      aspectRatio: aspect,
                                       // Perspective near must be > 0; keep extremely close for indoor viewing.
                                       nearZ: 0.001,
                                       farZ: 500.0)
+    }
+
+    /// Camera height above the cut plane for the current zoom footprint (no floor — zoom can go arbitrarily close).
+    private var topDownHoverDistance: Float {
+        let fovy = Float(Constants.fovy.radians)
+        return max(0.001, topDownOrthoHalfExtent / max(1e-4, tan(fovy * 0.5)))
     }
 
     private var viewport: ModelRendererViewportDescriptor {
@@ -1681,55 +1988,60 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         defer { lastCameraUpdateTimestamp = now }
 
         guard let lastCameraUpdateTimestamp else { return }
-        let deltaTime = Float(now.timeIntervalSince(lastCameraUpdateTimestamp))
-        guard deltaTime > 0, movement.isActive else { return }
+        // Cap so a single keypress after idle can't explode movement.
+        let deltaTime = min(1.0 / 30.0, Float(now.timeIntervalSince(lastCameraUpdateTimestamp)))
+        guard deltaTime > 0 else { return }
+
+        if topDownPhase == .cut {
+            updateTopDownCutCamera(deltaTime: deltaTime)
+            return
+        }
+
+        guard movement.isActive else { return }
 
         // Ground-plane movement (FPS-style): ignore look pitch so forward never flies up/down.
         var forward = cameraForward
         forward -= simd_dot(forward, navigationUp) * navigationUp
         var right = cameraRight
         right -= simd_dot(right, navigationUp) * navigationUp
-
         let forwardLength = simd_length(forward)
         let rightLength = simd_length(right)
-        guard forwardLength > 0.0001, rightLength > 0.0001 else { return }
-        forward /= forwardLength
-        right /= rightLength
+        if forwardLength > 0.0001, rightLength > 0.0001 {
+            forward /= forwardLength
+            right /= rightLength
 
-        var direction = SIMD3<Float>.zero
-        if movement.forward { direction += forward }
-        if movement.backward { direction -= forward }
-        if movement.right { direction += right }
-        if movement.left { direction -= right }
+            var direction = SIMD3<Float>.zero
+            if movement.forward { direction += forward }
+            if movement.backward { direction -= forward }
+            if movement.right { direction += right }
+            if movement.left { direction -= right }
 
-        let length = simd_length(direction)
-        if length > 0 {
-            let proposed = cameraPosition + (direction / length) * cameraMoveSpeed * deltaTime
-            if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint {
-                // Free XZ while marking stairs / setting camera angles / start point.
-                cameraPosition = proposed
-            } else {
-                var clamped = proposed
-                // Walkable outline only when not actively recording a new walk path.
-                if !isRecordingCollision, let walkableBounds {
-                    clamped = walkableBounds.clamp(clamped)
-                }
-                // Solid wall panels: slide along faces — never teleport through.
-                if isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingClickCollision {
-                    cameraPosition = clamped
+            let length = simd_length(direction)
+            if length > 0 {
+                let proposed = cameraPosition + (direction / length) * cameraMoveSpeed * deltaTime
+                if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint || topDownPhase == .adjusting {
+                    cameraPosition = proposed
                 } else {
-                    let basis = navigationBasis
-                    let moved = CollisionBlock.move(
-                        from: basis.toLocal(cameraPosition),
-                        to: basis.toLocal(clamped),
-                        against: collisionBlocks
-                    )
-                    cameraPosition = basis.toWorld(moved)
+                    var clamped = proposed
+                    if !isRecordingCollision, let walkableBounds {
+                        clamped = walkableBounds.clamp(clamped)
+                    }
+                    if isPlacingCollisionBlocks || isSelectingCollisionBlocks || isRecordingClickCollision {
+                        cameraPosition = clamped
+                    } else {
+                        let basis = navigationBasis
+                        let moved = CollisionBlock.move(
+                            from: basis.toLocal(cameraPosition),
+                            to: basis.toLocal(clamped),
+                            against: collisionBlocks
+                        )
+                        cameraPosition = basis.toWorld(moved)
+                    }
                 }
             }
         }
 
-        if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint {
+        if isRecordingStairs || isSettingCameraAngles || isSettingStartPoint || topDownPhase == .adjusting {
             if movement.up {
                 cameraPosition += navigationUp * Constants.stairRecordClimbSpeed * deltaTime
             }
@@ -1739,12 +2051,54 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             if isSettingCameraAngles || isSettingStartPoint {
                 persistentFloorY = heightAlongUp(cameraPosition)
             }
+            if topDownPhase == .adjusting {
+                topDownCutHeight = heightAlongUp(cameraPosition)
+                syncTopDownClipPlane()
+            }
         } else if isRecordingCollision {
             recordCollisionSampleIfNeeded()
         } else {
             applyStairOrGroundHeight()
             // Block collision is XZ-only; never let it change standing height.
             setHeightAlongUp(persistentFloorY)
+        }
+    }
+
+    /// Initial overhead framing right after Cut (free look afterward).
+    private func placeInitialTopDownCutCamera() {
+        cameraPitch = -Constants.cameraPitchLimit
+        setHeightAlongUp(topDownCutHeight + topDownHoverDistance)
+    }
+
+    private func updateTopDownCutCamera(deltaTime: Float) {
+        guard movement.isActive else { return }
+
+        // Free fly at Movement Speed: W/S along look (unlimited zoom), A/D strafe, Q/E up/down.
+        var direction = SIMD3<Float>.zero
+        if movement.forward { direction += cameraForward }
+        if movement.backward { direction -= cameraForward }
+        if movement.right { direction += cameraRight }
+        if movement.left { direction -= cameraRight }
+        if movement.up { direction += navigationUp }
+        if movement.down { direction -= navigationUp }
+
+        let length = simd_length(direction)
+        if length > 1e-5 {
+            cameraPosition += (direction / length) * cameraMoveSpeed * deltaTime
+            // Proxy for the slider / nav export only — never snaps the camera back.
+            let heightAboveCut = abs(heightAlongUp(cameraPosition) - topDownCutHeight)
+            let fovy = Float(Constants.fovy.radians)
+            topDownOrthoHalfExtent = max(Self.topDownOrthoMin, heightAboveCut * tan(fovy * 0.5))
+            topDownStatus = String(
+                format: "Top Down cut · roof at %.2f m · drag looks · WASD @ %.1f m/s · Save for DB",
+                topDownCutHeight,
+                cameraMoveSpeed
+            )
+            let t = CACurrentMediaTime()
+            if t - lastTopDownUINotifyTime > 0.08 {
+                lastTopDownUINotifyTime = t
+                onTopDownStateChanged?()
+            }
         }
     }
 
@@ -1945,6 +2299,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         updateCamera()
         proceduralSplatController?.update()
+        syncTopDownClipPlane()
 
         lastProjectionMatrix = projectionMatrix
         lastViewMatrix = viewMatrix

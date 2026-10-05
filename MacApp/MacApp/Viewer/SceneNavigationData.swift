@@ -41,6 +41,20 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     var moveSpeed: Float?
     /// Multiplier for Measure tool pin / laser / reticle size. Nil = 1.0.
     var measureScale: Float?
+    /// Saved Top Down View roof-cut height along navigation up. Nil = no saved cut.
+    var topDownCutHeight: Float?
+    /// Default / framing zoom (view-width half-extent) at Save Cut. Nil = default.
+    var topDownOrthoHalfExtent: Float?
+    /// Closest allowed top-down zoom (smallest view width). Nil = unset.
+    var topDownOrthoZoomIn: Float?
+    /// Farthest allowed top-down zoom (largest view width). Nil = unset.
+    var topDownOrthoZoomOut: Float?
+    /// Yaw (radians) for the saved top-down framing.
+    var topDownYawRadians: Float?
+    /// Pitch (radians) for the saved top-down framing.
+    var topDownPitchRadians: Float?
+    /// Camera pose for Mac Top Down start (navigation space). Written by SampleApp Save Cut.
+    var topDownCenter: SIMD3<Float>?
     /// Collision layers by floor height. Empty = no walkable clamp.
     var collisionLayers: [CollisionLayerData]
     /// Solid wall bricks (Lego-style). Empty = none.
@@ -91,6 +105,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
         measureScale: Float? = nil,
+        topDownCutHeight: Float? = nil,
+        topDownOrthoHalfExtent: Float? = nil,
+        topDownOrthoZoomIn: Float? = nil,
+        topDownOrthoZoomOut: Float? = nil,
+        topDownYawRadians: Float? = nil,
+        topDownPitchRadians: Float? = nil,
+        topDownCenter: SIMD3<Float>? = nil,
         collisionLayers: [CollisionLayerData],
         collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
@@ -102,6 +123,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         self.orientationForward = orientationForward
         self.moveSpeed = moveSpeed
         self.measureScale = measureScale
+        self.topDownCutHeight = topDownCutHeight
+        self.topDownOrthoHalfExtent = topDownOrthoHalfExtent
+        self.topDownOrthoZoomIn = topDownOrthoZoomIn
+        self.topDownOrthoZoomOut = topDownOrthoZoomOut
+        self.topDownYawRadians = topDownYawRadians
+        self.topDownPitchRadians = topDownPitchRadians
+        self.topDownCenter = topDownCenter
         self.collisionLayers = collisionLayers
         self.collisionBlocks = collisionBlocks
         self.stairPolygons = stairPolygons
@@ -116,6 +144,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
         measureScale: Float? = nil,
+        topDownCutHeight: Float? = nil,
+        topDownOrthoHalfExtent: Float? = nil,
+        topDownOrthoZoomIn: Float? = nil,
+        topDownOrthoZoomOut: Float? = nil,
+        topDownYawRadians: Float? = nil,
+        topDownPitchRadians: Float? = nil,
+        topDownCenter: SIMD3<Float>? = nil,
         collisionPoints: [SIMD3<Float>],
         collisionBlocks: [CollisionBlock] = [],
         stairVertices: [SIMD3<Float>]
@@ -132,6 +167,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
             measureScale: measureScale,
+            topDownCutHeight: topDownCutHeight,
+            topDownOrthoHalfExtent: topDownOrthoHalfExtent,
+            topDownOrthoZoomIn: topDownOrthoZoomIn,
+            topDownOrthoZoomOut: topDownOrthoZoomOut,
+            topDownYawRadians: topDownYawRadians,
+            topDownPitchRadians: topDownPitchRadians,
+            topDownCenter: topDownCenter,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
             collisionBlocks: collisionBlocks,
             stairPolygons: stairVertices.count >= 3 ? [stairVertices] : []
@@ -146,6 +188,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         orientationForward: SIMD3<Float>? = nil,
         moveSpeed: Float? = nil,
         measureScale: Float? = nil,
+        topDownCutHeight: Float? = nil,
+        topDownOrthoHalfExtent: Float? = nil,
+        topDownOrthoZoomIn: Float? = nil,
+        topDownOrthoZoomOut: Float? = nil,
+        topDownYawRadians: Float? = nil,
+        topDownPitchRadians: Float? = nil,
+        topDownCenter: SIMD3<Float>? = nil,
         collisionPoints: [SIMD3<Float>],
         collisionBlocks: [CollisionBlock] = [],
         stairPolygons: [[SIMD3<Float>]]
@@ -162,11 +211,20 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
             measureScale: measureScale,
+            topDownCutHeight: topDownCutHeight,
+            topDownOrthoHalfExtent: topDownOrthoHalfExtent,
+            topDownOrthoZoomIn: topDownOrthoZoomIn,
+            topDownOrthoZoomOut: topDownOrthoZoomOut,
+            topDownYawRadians: topDownYawRadians,
+            topDownPitchRadians: topDownPitchRadians,
+            topDownCenter: topDownCenter,
             collisionLayers: clusters.map { CollisionLayerData(floorY: $0.floorY, points: $0.points) },
             collisionBlocks: collisionBlocks,
             stairPolygons: stairPolygons.filter { $0.count >= 3 }
         )
     }
+
+    var hasTopDownCut: Bool { topDownCutHeight != nil }
 
     static func parse(_ text: String) throws -> SceneNavigationData {
         enum Section {
@@ -184,6 +242,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         var orientationVectors: [SIMD3<Float>] = []
         var moveSpeed: Float?
         var measureScale: Float?
+        var topDownCutHeight: Float?
+        var topDownOrthoHalfExtent: Float?
+        var topDownOrthoZoomIn: Float?
+        var topDownOrthoZoomOut: Float?
+        var topDownYawRadians: Float?
+        var topDownPitchRadians: Float?
+        var topDownCenter: SIMD3<Float>?
 
         func flushStairPolygon() {
             guard currentStairPoints.count >= 3 else {
@@ -268,6 +333,32 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
                 let loweredLine = line.lowercased()
                 if loweredLine.contains("measure"), let value = parts.last, value > 0 {
                     measureScale = value
+                } else if loweredLine.contains("topdown_cut") || loweredLine.contains("top_down_cut"),
+                          let value = parts.last {
+                    topDownCutHeight = value
+                } else if loweredLine.contains("topdown_ortho_zoom_in")
+                            || loweredLine.contains("topdown_zoom_in")
+                            || loweredLine.contains("top_down_zoom_in"),
+                          let value = parts.last, value > 0 {
+                    topDownOrthoZoomIn = value
+                } else if loweredLine.contains("topdown_ortho_zoom_out")
+                            || loweredLine.contains("topdown_zoom_out")
+                            || loweredLine.contains("top_down_zoom_out"),
+                          let value = parts.last, value > 0 {
+                    topDownOrthoZoomOut = value
+                } else if (loweredLine.contains("topdown_ortho") || loweredLine.contains("top_down_ortho")),
+                          !loweredLine.contains("zoom"),
+                          let value = parts.last, value > 0 {
+                    topDownOrthoHalfExtent = value
+                } else if loweredLine.contains("topdown_pitch") || loweredLine.contains("top_down_pitch"),
+                          let value = parts.last {
+                    topDownPitchRadians = value * .pi / 180
+                } else if loweredLine.contains("topdown_yaw") || loweredLine.contains("top_down_yaw"),
+                          let value = parts.last {
+                    topDownYawRadians = value * .pi / 180
+                } else if loweredLine.contains("topdown_center") || loweredLine.contains("top_down_center"),
+                          parts.count >= 3 {
+                    topDownCenter = SIMD3(parts[parts.count - 3], parts[parts.count - 2], parts[parts.count - 1])
                 } else if loweredLine.contains("move"), let value = parts.last, value > 0 {
                     moveSpeed = value
                 } else if parts.count >= 1, moveSpeed == nil, parts[0] > 0 {
@@ -346,6 +437,13 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             orientationForward: orientationForward,
             moveSpeed: moveSpeed,
             measureScale: measureScale,
+            topDownCutHeight: topDownCutHeight,
+            topDownOrthoHalfExtent: topDownOrthoHalfExtent,
+            topDownOrthoZoomIn: topDownOrthoZoomIn,
+            topDownOrthoZoomOut: topDownOrthoZoomOut,
+            topDownYawRadians: topDownYawRadians,
+            topDownPitchRadians: topDownPitchRadians,
+            topDownCenter: topDownCenter,
             collisionLayers: layers,
             collisionBlocks: blocks,
             stairPolygons: stairPolygons
@@ -382,7 +480,7 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
             ]
         }
 
-        if moveSpeed != nil || measureScale != nil {
+        if moveSpeed != nil || measureScale != nil || topDownCutHeight != nil {
             lines += [
                 "",
                 "[settings]",
@@ -398,6 +496,53 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
                     "# measure_scale multiplies Measure pin / laser / reticle size (1.0 = default)",
                     String(format: "measure_scale %.6f", measureScale),
                 ]
+            }
+            if let topDownCutHeight {
+                lines += [
+                    "# topdown_cut_height: roof clip along navigation up (Top Down View)",
+                    String(format: "topdown_cut_height %.6f", topDownCutHeight),
+                ]
+                if let topDownOrthoHalfExtent {
+                    lines += [
+                        "# topdown_ortho: default framing view-width (from Save Cut)",
+                        String(format: "topdown_ortho %.6f", topDownOrthoHalfExtent),
+                    ]
+                }
+                if let topDownOrthoZoomIn {
+                    lines += [
+                        "# topdown_ortho_zoom_in: closest zoom (smallest view width)",
+                        String(format: "topdown_ortho_zoom_in %.6f", topDownOrthoZoomIn),
+                    ]
+                }
+                if let topDownOrthoZoomOut {
+                    lines += [
+                        "# topdown_ortho_zoom_out: farthest zoom (largest view width)",
+                        String(format: "topdown_ortho_zoom_out %.6f", topDownOrthoZoomOut),
+                    ]
+                }
+                if let topDownYawRadians {
+                    lines += [
+                        "# topdown_yaw_degrees",
+                        String(format: "topdown_yaw_degrees %.6f", topDownYawRadians * 180 / .pi),
+                    ]
+                }
+                if let topDownPitchRadians {
+                    lines += [
+                        "# topdown_pitch_degrees",
+                        String(format: "topdown_pitch_degrees %.6f", topDownPitchRadians * 180 / .pi),
+                    ]
+                }
+                if let topDownCenter {
+                    lines += [
+                        "# topdown_center x y z (camera framing in navigation space)",
+                        String(
+                            format: "topdown_center %.6f %.6f %.6f",
+                            topDownCenter.x,
+                            topDownCenter.y,
+                            topDownCenter.z
+                        ),
+                    ]
+                }
             }
         }
 
@@ -488,6 +633,8 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case startPosition, startYawRadians, startPitchRadians
         case orientationUp, orientationForward, moveSpeed, measureScale
+        case topDownCutHeight, topDownOrthoHalfExtent, topDownOrthoZoomIn, topDownOrthoZoomOut
+        case topDownYawRadians, topDownPitchRadians, topDownCenter
         case collisionLayers, collisionBlocks, stairPolygons
         case collisionPoints, stairVertices // legacy
     }
@@ -509,6 +656,17 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         }
         moveSpeed = try c.decodeIfPresent(Float.self, forKey: .moveSpeed)
         measureScale = try c.decodeIfPresent(Float.self, forKey: .measureScale)
+        topDownCutHeight = try c.decodeIfPresent(Float.self, forKey: .topDownCutHeight)
+        topDownOrthoHalfExtent = try c.decodeIfPresent(Float.self, forKey: .topDownOrthoHalfExtent)
+        topDownOrthoZoomIn = try c.decodeIfPresent(Float.self, forKey: .topDownOrthoZoomIn)
+        topDownOrthoZoomOut = try c.decodeIfPresent(Float.self, forKey: .topDownOrthoZoomOut)
+        topDownYawRadians = try c.decodeIfPresent(Float.self, forKey: .topDownYawRadians)
+        topDownPitchRadians = try c.decodeIfPresent(Float.self, forKey: .topDownPitchRadians)
+        if let center = try c.decodeIfPresent([Float].self, forKey: .topDownCenter), center.count >= 3 {
+            topDownCenter = SIMD3(center[0], center[1], center[2])
+        } else {
+            topDownCenter = nil
+        }
 
         if let layers = try c.decodeIfPresent([CollisionLayerData].self, forKey: .collisionLayers) {
             collisionLayers = layers
@@ -548,6 +706,15 @@ struct SceneNavigationData: Equatable, Hashable, Codable {
         }
         try c.encodeIfPresent(moveSpeed, forKey: .moveSpeed)
         try c.encodeIfPresent(measureScale, forKey: .measureScale)
+        try c.encodeIfPresent(topDownCutHeight, forKey: .topDownCutHeight)
+        try c.encodeIfPresent(topDownOrthoHalfExtent, forKey: .topDownOrthoHalfExtent)
+        try c.encodeIfPresent(topDownOrthoZoomIn, forKey: .topDownOrthoZoomIn)
+        try c.encodeIfPresent(topDownOrthoZoomOut, forKey: .topDownOrthoZoomOut)
+        try c.encodeIfPresent(topDownYawRadians, forKey: .topDownYawRadians)
+        try c.encodeIfPresent(topDownPitchRadians, forKey: .topDownPitchRadians)
+        if let topDownCenter {
+            try c.encode([topDownCenter.x, topDownCenter.y, topDownCenter.z], forKey: .topDownCenter)
+        }
         try c.encode(collisionLayers, forKey: .collisionLayers)
         try c.encode(collisionBlocks, forKey: .collisionBlocks)
         try c.encode(stairPolygons.map { $0.map { [$0.x, $0.y, $0.z] } }, forKey: .stairPolygons)

@@ -153,6 +153,15 @@ FragmentIn splatVertex(Splat splat,
                        uint splatIndex) {
     FragmentIn out;
 
+    // Optional roof / height cut (SampleApp top-down tool).
+    if (uniforms.clipEnabled != 0) {
+        float planeDistance = dot(float3(splat.position), uniforms.clipPlane.xyz) + uniforms.clipPlane.w;
+        if (planeDistance > 0.0f) {
+            out.position = float4(1, 1, 0, 1);
+            return out;
+        }
+    }
+
     float4 viewPosition4 = uniforms.viewMatrix * float4(splat.position, 1);
     float3 viewPosition3 = viewPosition4.xyz;
 

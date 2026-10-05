@@ -40,6 +40,7 @@ struct ProjectViewerView: View {
                     photoSearchUsesSPZCoordinates: project.isSPZ,
                     photoSearchUsesServerCalibration: project.useServerCalibration,
                     measureCalibrationFactor: project.measureFactor,
+                    moveSpeed: project.moveSpeed,
                     onModelLoadStateChanged: { ready in
                         if ready {
                             withAnimation(.easeOut(duration: 0.35)) {

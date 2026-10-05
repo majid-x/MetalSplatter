@@ -1,3 +1,7 @@
+#if os(iOS) || os(visionOS)
+import UIKit
+import Photos
+#endif
 import SwiftUI
 import MetalKit
 import CoreGraphics
@@ -7,7 +11,6 @@ import UniformTypeIdentifiers
 import AppKit
 private typealias PlatformViewRepresentable = NSViewRepresentable
 #elseif os(iOS) || os(visionOS)
-import UIKit
 private typealias PlatformViewRepresentable = UIViewRepresentable
 #endif
 
@@ -22,6 +25,8 @@ struct ClientSceneView: View {
     var photoSearchUsesServerCalibration: Bool = false
     /// From project `measur_factor`. Scales Measure tool distances (`display = raw * factor`).
     var measureCalibrationFactor: Float = 1.0
+    /// From project `move_speed` (m/s). Nil → app default; not read from nav.txt.
+    var moveSpeed: Float? = nil
     var onModelLoadStateChanged: ((Bool) -> Void)? = nil
     var onModelLoadFailed: ((String) -> Void)? = nil
 
@@ -39,6 +44,10 @@ struct ClientSceneView: View {
     @State private var measureDeleteMode = false
     @State private var measureLabelOverlays: [MetalKitSceneRenderer.MeasureLabelOverlay] = []
 
+    @State private var hasTopDownCut = false
+    @State private var isTopDownActive = false
+    @State private var topDownStatus = "Top Down off"
+
     @State private var isSelectingScreenshot = false
     @State private var screenshotSelectionPurpose: ScreenshotSelectionPurpose = .productSearch
     @State private var showProductPanel = false
@@ -50,10 +59,6 @@ struct ClientSceneView: View {
     @State private var productSearchClient = ProductSearchClient()
     @State private var isSavingScreenshot = false
     @State private var toolHintOverride: String?
-#if os(iOS) || os(visionOS)
-    @State private var shareScreenshotURL: URL?
-    @State private var isSharePresented = false
-#endif
 
     private enum ScreenshotSelectionPurpose {
         case productSearch
@@ -67,6 +72,13 @@ struct ClientSceneView: View {
             return "Drag to select an area · Esc or tap tool again to cancel"
 #else
             return "Drag to select an area · tap the tool again to cancel"
+#endif
+        }
+        if isTopDownActive {
+#if os(macOS)
+            return "Top Down · drag looks · WASD pans · magnifying glass zooms · zoom in to cut"
+#else
+            return "Top Down · drag looks · pad pans · magnifying glass zooms · zoom in to cut"
 #endif
         }
         if measureMode {
@@ -101,6 +113,7 @@ struct ClientSceneView: View {
                     photoSearchUsesSPZCoordinates: photoSearchUsesSPZCoordinates,
                     photoSearchUsesServerCalibration: photoSearchUsesServerCalibration,
                     measureCalibrationFactor: measureCalibrationFactor,
+                    moveSpeed: moveSpeed,
                     rendererBox: rendererBox,
                     onPointClickStateChanged: {
                         pointClickMode = rendererBox.renderer?.pointClickMode ?? false
@@ -119,10 +132,36 @@ struct ClientSceneView: View {
                         measureDeleteMode = rendererBox.renderer?.measureDeleteMode ?? false
                         measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
                     },
+                    onTopDownStateChanged: {
+                        hasTopDownCut = rendererBox.renderer?.hasTopDownCut ?? false
+                        isTopDownActive = rendererBox.renderer?.isTopDownActive ?? false
+                        topDownStatus = rendererBox.renderer?.topDownStatus ?? "Top Down off"
+                    },
                     onModelLoadStateChanged: onModelLoadStateChanged,
                     onModelLoadFailed: onModelLoadFailed
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isTopDownActive {
+                    HStack(spacing: 6) {
+                        TopDownZoomButton(
+                            systemImage: "plus.magnifyingglass",
+                            help: "Zoom in"
+                        ) {
+                            rendererBox.renderer?.nudgeTopDownZoom(zoomIn: true)
+                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                        }
+                        TopDownZoomButton(
+                            systemImage: "minus.magnifyingglass",
+                            help: "Zoom out"
+                        ) {
+                            rendererBox.renderer?.nudgeTopDownZoom(zoomIn: false)
+                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
 
                 // Mid-segment distance labels (PlayCanvas measurer text).
                 ForEach(measureLabelOverlays) { label in
@@ -154,6 +193,10 @@ struct ClientSceneView: View {
                                     cancelScreenshotSelection()
                                     rendererBox.renderer?.setMeasureMode(false)
                                     measureMode = false
+                                    if isTopDownActive {
+                                        rendererBox.renderer?.setTopDownMode(false)
+                                        isTopDownActive = false
+                                    }
                                 }
                                 rendererBox.renderer?.setPointClickMode(enabled)
                                 pointClickMode = enabled
@@ -186,11 +229,45 @@ struct ClientSceneView: View {
                                     pointClickMode = false
                                     showPhotoPanel = false
                                 }
+                                if isTopDownActive {
+                                    rendererBox.renderer?.setTopDownMode(false)
+                                    isTopDownActive = false
+                                }
                             }
                             rendererBox.renderer?.setMeasureMode(enabled)
                             measureMode = enabled
                             measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
                             measureDeleteMode = false
+                        }
+
+                        if hasTopDownCut {
+                            ViewerToolButton(
+                                title: isTopDownActive ? "Top Down On" : "Top Down",
+                                systemImage: "square.3.layers.3d.down.right",
+                                isActive: isTopDownActive,
+                                accent: Color(red: 0.55, green: 0.35, blue: 0.85),
+                                isDisabled: (isSelectingScreenshot && !isTopDownActive) || isSavingScreenshot
+                            ) {
+                                let enabled = !isTopDownActive
+#if os(macOS)
+                                rendererBox.cameraView?.setMouseLookActive(false)
+#endif
+                                if enabled {
+                                    cancelScreenshotSelection()
+                                    if pointClickMode {
+                                        rendererBox.renderer?.setPointClickMode(false)
+                                        pointClickMode = false
+                                        showPhotoPanel = false
+                                    }
+                                    if measureMode {
+                                        rendererBox.renderer?.setMeasureMode(false)
+                                        measureMode = false
+                                    }
+                                }
+                                rendererBox.renderer?.setTopDownMode(enabled)
+                                isTopDownActive = rendererBox.renderer?.isTopDownActive ?? enabled
+                                topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                            }
                         }
 
                         if measureMode {
@@ -251,6 +328,19 @@ struct ClientSceneView: View {
 
                     if measureMode || measureStatus != "Measure off" {
                         Text(measureStatus)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(red: 0.08, green: 0.09, blue: 0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                            }
+                    }
+
+                    if isTopDownActive || (hasTopDownCut && topDownStatus != "Top Down off") {
+                        Text(topDownStatus)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
@@ -350,13 +440,6 @@ struct ClientSceneView: View {
                 )
             }
         }
-#if os(iOS) || os(visionOS)
-        .sheet(isPresented: $isSharePresented) {
-            if let shareScreenshotURL {
-                ShareSheet(items: [shareScreenshotURL])
-            }
-        }
-#endif
     }
 
     private func cancelScreenshotSelection() {
@@ -390,19 +473,33 @@ struct ClientSceneView: View {
     private func captureAndSaveScreenshot(selection: CGRect, overlaySize: CGSize) async {
         isSavingScreenshot = true
         toolHintOverride = "Capturing screenshot…"
-
-        guard let renderer = rendererBox.renderer,
-              let fullImage = await renderer.captureScreenshotImage() else {
+        defer {
             isSavingScreenshot = false
+            if toolHintOverride == "Capturing screenshot…" {
+                toolHintOverride = nil
+            }
+        }
+
+        guard let renderer = rendererBox.renderer else {
             showToolHint("Screenshot failed. Try again.")
+            return
+        }
+
+        let fullImage = await captureScreenshotWithTimeout(renderer: renderer, seconds: 4)
+        guard let fullImage else {
+            showToolHint("Screenshot timed out. Try again.")
             return
         }
 
         let viewSize = screenshotViewSize(fallbackOverlay: overlaySize, renderer: renderer)
         guard viewSize.width > 1, viewSize.height > 1,
-              let cropped = fullImage.cropped(to: selection, fromViewSize: viewSize),
-              let pngData = cropped.pngDataCompatible() else {
-            isSavingScreenshot = false
+              let cropped = fullImage.cropped(to: selection, fromViewSize: viewSize) else {
+            showToolHint("Could not crop selection.")
+            return
+        }
+
+#if os(macOS)
+        guard let pngData = cropped.pngDataCompatible() else {
             showToolHint("Could not crop selection.")
             return
         }
@@ -411,7 +508,6 @@ struct ClientSceneView: View {
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let filename = "MetalSplatter_\(formatter.string(from: Date())).png"
 
-#if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
@@ -424,34 +520,106 @@ struct ClientSceneView: View {
         }
 
         guard panel.runModal() == .OK, let url = panel.url else {
-            isSavingScreenshot = false
             toolHintOverride = nil
             return
         }
 
         do {
             try pngData.write(to: url, options: .atomic)
-            isSavingScreenshot = false
             showToolHint("Saved \(url.lastPathComponent)")
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
-            isSavingScreenshot = false
             showToolHint("Could not save: \(error.localizedDescription)")
         }
 #else
-        do {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            try pngData.write(to: url, options: .atomic)
-            shareScreenshotURL = url
-            isSavingScreenshot = false
-            toolHintOverride = nil
-            isSharePresented = true
-        } catch {
-            isSavingScreenshot = false
-            showToolHint("Could not save: \(error.localizedDescription)")
+        guard let uiImage = cropped as UIImage? else {
+            showToolHint("Screenshot failed. Try again.")
+            return
+        }
+        let saved = await saveScreenshotToPhotos(uiImage)
+        if saved {
+            showToolHint("Saved to Photos")
+        } else {
+            // UIKit share sheet — avoids SwiftUI `.sheet` + UIActivityViewController AppGraph crash.
+            presentIOSShareSheet(for: uiImage)
+            showToolHint("Choose Save Image to add to Photos")
         }
 #endif
     }
+
+    @MainActor
+    private func captureScreenshotWithTimeout(
+        renderer: MetalKitSceneRenderer,
+        seconds: TimeInterval
+    ) async -> PlatformImage? {
+        let captureTask = Task { @MainActor in
+            await renderer.captureScreenshotImage()
+        }
+        let timeoutTask = Task {
+            let nanos = UInt64(max(0.5, seconds) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            await MainActor.run {
+                renderer.cancelPendingScreenshot()
+            }
+        }
+        let image = await captureTask.value
+        timeoutTask.cancel()
+        return image
+    }
+
+#if os(iOS) || os(visionOS)
+    @MainActor
+    private func saveScreenshotToPhotos(_ image: UIImage) async -> Bool {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            return false
+        }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAsset(from: image)
+                    }
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 12_000_000_000)
+                    throw CancellationError()
+                }
+                try await group.next()
+                group.cancelAll()
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    @MainActor
+    private func presentIOSShareSheet(for image: UIImage) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: \.isKeyWindow),
+              var presenter = window.rootViewController else {
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        let activity = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.midY,
+                width: 0,
+                height: 0
+            )
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(activity, animated: true)
+    }
+#endif
 
     private func showToolHint(_ message: String) {
         toolHintOverride = message
@@ -479,7 +647,7 @@ struct ClientSceneView: View {
         productStatusText = "Capturing screenshot…"
         showProductPanel = true
 
-        guard let fullImage = await renderer.captureScreenshotImage() else {
+        guard let fullImage = await captureScreenshotWithTimeout(renderer: renderer, seconds: 4) else {
             isProductSearching = false
             productStatusText = "Screenshot failed. Try again."
             return
@@ -551,18 +719,6 @@ final class ClientRendererBox {
     }
 }
 
-#if os(iOS) || os(visionOS)
-private struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-#endif
-
 private struct MeasureSubButton: View {
     let title: String
     let systemImage: String
@@ -591,6 +747,32 @@ private struct MeasureSubButton: View {
         }
         .buttonStyle(.plain)
         .help(title)
+    }
+}
+
+private struct TopDownZoomButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.95))
+                .frame(width: 40, height: 40)
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(red: 0.08, green: 0.09, blue: 0.12))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color(red: 0.55, green: 0.35, blue: 0.85).opacity(0.85), lineWidth: 1.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -665,9 +847,11 @@ private struct ClientSceneRepresentable: PlatformViewRepresentable {
     var photoSearchUsesSPZCoordinates: Bool = false
     var photoSearchUsesServerCalibration: Bool = false
     var measureCalibrationFactor: Float = 1.0
+    var moveSpeed: Float? = nil
     var rendererBox: ClientRendererBox
     var onPointClickStateChanged: () -> Void
     var onMeasureStateChanged: () -> Void
+    var onTopDownStateChanged: () -> Void
     var onModelLoadStateChanged: ((Bool) -> Void)?
     var onModelLoadFailed: ((String) -> Void)?
 
@@ -707,6 +891,7 @@ private struct ClientSceneRepresentable: PlatformViewRepresentable {
         renderer?.photoSearchUsesSPZCoordinates = photoSearchUsesSPZCoordinates
         renderer?.photoSearchUsesServerCalibration = photoSearchUsesServerCalibration
         renderer?.measureCalibrationFactor = measureCalibrationFactor
+        renderer?.cameraMoveSpeed = moveSpeed ?? Constants.cameraMoveSpeed
         coordinator.renderer = renderer
         metalKitView.delegate = renderer
         metalKitView.renderer = renderer
@@ -716,6 +901,7 @@ private struct ClientSceneRepresentable: PlatformViewRepresentable {
 #endif
         renderer?.onPointClickStateChanged = onPointClickStateChanged
         renderer?.onMeasureStateChanged = onMeasureStateChanged
+        renderer?.onTopDownStateChanged = onTopDownStateChanged
 
         loadModel(on: coordinator)
         return metalKitView
@@ -734,8 +920,10 @@ private struct ClientSceneRepresentable: PlatformViewRepresentable {
         context.coordinator.renderer?.photoSearchUsesSPZCoordinates = photoSearchUsesSPZCoordinates
         context.coordinator.renderer?.photoSearchUsesServerCalibration = photoSearchUsesServerCalibration
         context.coordinator.renderer?.measureCalibrationFactor = measureCalibrationFactor
+        context.coordinator.renderer?.cameraMoveSpeed = moveSpeed ?? Constants.cameraMoveSpeed
         context.coordinator.renderer?.onPointClickStateChanged = onPointClickStateChanged
         context.coordinator.renderer?.onMeasureStateChanged = onMeasureStateChanged
+        context.coordinator.renderer?.onTopDownStateChanged = onTopDownStateChanged
     }
 
     private func loadModel(on coordinator: Coordinator) {
@@ -745,10 +933,14 @@ private struct ClientSceneRepresentable: PlatformViewRepresentable {
         Task { @MainActor in
             do {
                 try await renderer.load(modelIdentifier)
+                // load() resets speed to Constants; re-apply Supabase project value.
+                renderer.cameraMoveSpeed = moveSpeed ?? Constants.cameraMoveSpeed
+                onTopDownStateChanged()
                 onModelLoadStateChanged?(true)
             } catch {
                 let message = friendlyLoadErrorMessage(for: error)
                 print("Couldn't load model: \(message)")
+                onTopDownStateChanged()
                 onModelLoadStateChanged?(false)
                 onModelLoadFailed?(message)
             }
@@ -795,7 +987,9 @@ final class ClientCameraControlMTKView: MTKView {
         static let a: UInt16 = 0
         static let s: UInt16 = 1
         static let d: UInt16 = 2
+        static let q: UInt16 = 12
         static let w: UInt16 = 13
+        static let e: UInt16 = 14
         static let escape: UInt16 = 53
         static let leftArrow: UInt16 = 123
         static let rightArrow: UInt16 = 124
@@ -848,6 +1042,14 @@ final class ClientCameraControlMTKView: MTKView {
         window?.makeFirstResponder(self)
         let locationInView = convert(event.locationInWindow, from: nil)
 
+        // Top Down keeps the cursor visible — look by dragging, no click-to-lock.
+        if renderer?.isTopDownActive == true {
+            setMouseLookActive(false)
+            toolMouseDownLocation = nil
+            didDragLookFromToolClick = false
+            return
+        }
+
         if isToolClickMode {
             // Defer the tool action until mouseUp so a drag can look instead.
             setMouseLookActive(false)
@@ -862,6 +1064,12 @@ final class ClientCameraControlMTKView: MTKView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if renderer?.isTopDownActive == true {
+            // Invert drag-look: grab-style, same as measure/tool drag.
+            renderer?.applyLookDelta(deltaX: -event.deltaX, deltaY: -event.deltaY)
+            return
+        }
+
         guard isToolClickMode, toolMouseDownLocation != nil else {
             super.mouseDragged(with: event)
             return

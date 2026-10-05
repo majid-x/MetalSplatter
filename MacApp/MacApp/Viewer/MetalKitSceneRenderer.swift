@@ -191,15 +191,69 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     /// Notifies SwiftUI overlays when pick / mode / photo-search state changes.
     var onPointClickStateChanged: (() -> Void)?
+    /// Notifies SwiftUI when Top Down availability / active state changes.
+    var onTopDownStateChanged: (() -> Void)?
 
-    /// Filled on the next rendered frame when a product-search screenshot is requested.
-    private var screenshotContinuation: CheckedContinuation<PlatformImage?, Never>?
+    // MARK: - Top Down (nav.txt authored cut — client view only)
+
+    /// True when nav.txt includes a saved roof cut (`topdown_cut_height`).
+    private(set) var hasTopDownCut = false
+    private(set) var isTopDownActive = false
+    private(set) var topDownStatus = "Top Down off"
+    private var savedTopDownCutHeight: Float?
+    private var savedTopDownOrthoHalfExtent: Float?
+    private var savedTopDownOrthoZoomIn: Float?
+    private var savedTopDownOrthoZoomOut: Float?
+    private var savedTopDownYaw: Float?
+    private var savedTopDownPitch: Float?
+    private var savedTopDownCenter: SIMD3<Float>?
+    private var topDownCutHeight: Float = 0
+    private var topDownOrthoHalfExtent: Float = 10
+    private var topDownSavedPosition = SIMD3<Float>.zero
+    private var topDownSavedYaw: Float = 0
+    private var topDownSavedPitch: Float = 0
+    private var lastTopDownUINotifyTime: CFTimeInterval = 0
+
+    /// Waits for the next frame readback; resumed at most once (timeout-safe).
+    private final class ScreenshotWaiter {
+        private var continuation: CheckedContinuation<PlatformImage?, Never>?
+
+        func begin(_ continuation: CheckedContinuation<PlatformImage?, Never>) {
+            finish(nil)
+            self.continuation = continuation
+        }
+
+        var hasPending: Bool { continuation != nil }
+
+        func finish(_ image: PlatformImage?) {
+            guard let continuation else { return }
+            self.continuation = nil
+            if Thread.isMainThread {
+                continuation.resume(returning: image)
+            } else {
+                DispatchQueue.main.async {
+                    continuation.resume(returning: image)
+                }
+            }
+        }
+    }
+
+    private let screenshotWaiter = ScreenshotWaiter()
+
+    /// Cancels an in-flight screenshot wait (e.g. capture timeout).
+    func cancelPendingScreenshot() {
+        screenshotWaiter.finish(nil)
+    }
 
     /// Captures the next presented frame as a `PlatformImage` (BGRA framebuffer readback).
     func captureScreenshotImage() async -> PlatformImage? {
-        await withCheckedContinuation { continuation in
-            screenshotContinuation?.resume(returning: nil)
-            screenshotContinuation = continuation
+#if os(macOS)
+        metalKitView.setNeedsDisplay(metalKitView.bounds)
+#else
+        metalKitView.setNeedsDisplay()
+#endif
+        return await withCheckedContinuation { continuation in
+            screenshotWaiter.begin(continuation)
         }
     }
 
@@ -264,6 +318,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureStatus = "Measure off"
         measureOverlayScale = MeasureConstants.overlayScaleDefault
         measureSnappingEnabled = false
+        clearTopDownState()
         if pointClickMode {
             pointClickStatus = "Click a surface to find photos"
         } else {
@@ -271,6 +326,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
         onPointClickStateChanged?()
         onMeasureStateChanged?()
+        onTopDownStateChanged?()
 
         switch model {
         case .gaussianSplat(let url, let navigation):
@@ -315,9 +371,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     /// Missing sections stay empty — no synthetic walkable bounds, blocks, or stairs.
     func applyNavigation(_ data: SceneNavigationData) {
         applyOrientation(up: data.orientationUp, forward: data.orientationForward)
-        if let speed = data.moveSpeed, speed > 0 {
-            cameraMoveSpeed = speed
-        }
+        // Walk speed comes from Supabase `move_speed`, not nav.txt.
         if let scale = data.measureScale, scale > 0 {
             measureOverlayScale = scale
         }
@@ -335,7 +389,39 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         loadedStairPolygons = data.stairPolygons.filter { $0.count >= 3 }
         rebuildStairRegions()
 
+        // Store authored top-down cut for the Top Down tool (does not auto-enter).
+        if let cutHeight = data.topDownCutHeight {
+            hasTopDownCut = true
+            savedTopDownCutHeight = cutHeight
+            savedTopDownOrthoHalfExtent = data.topDownOrthoHalfExtent
+            savedTopDownOrthoZoomIn = data.topDownOrthoZoomIn
+            savedTopDownOrthoZoomOut = data.topDownOrthoZoomOut
+            savedTopDownYaw = data.topDownYawRadians
+            savedTopDownPitch = data.topDownPitchRadians
+            savedTopDownCenter = data.topDownCenter
+        } else {
+            clearTopDownState()
+        }
+
         applyStairOrGroundHeight()
+        onTopDownStateChanged?()
+    }
+
+    private func clearTopDownState() {
+        if isTopDownActive {
+            (modelRenderer as? SplatRenderer)?.modelClipPlane = nil
+        }
+        hasTopDownCut = false
+        isTopDownActive = false
+        topDownStatus = "Top Down off"
+        savedTopDownCutHeight = nil
+        savedTopDownOrthoHalfExtent = nil
+        savedTopDownOrthoZoomIn = nil
+        savedTopDownOrthoZoomOut = nil
+        savedTopDownYaw = nil
+        savedTopDownPitch = nil
+        savedTopDownCenter = nil
+        topDownCutHeight = 0
     }
 
     private func applyOrientation(up: SIMD3<Float>?, forward: SIMD3<Float>?) {
@@ -388,6 +474,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
         if enabled {
             setMeasureMode(false)
+            if isTopDownActive { setTopDownMode(false) }
         }
         pointClickMode = enabled
         if enabled {
@@ -418,6 +505,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     func setMeasureMode(_ enabled: Bool) {
         if enabled {
             setPointClickMode(false)
+            if isTopDownActive { setTopDownMode(false) }
         }
         measureMode = enabled
         measureDeleteMode = false
@@ -779,6 +867,121 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         cameraPitch = max(-Constants.cameraPitchLimit, min(Constants.cameraPitchLimit, cameraPitch))
     }
 
+    // MARK: Top Down View (from nav.txt)
+
+    /// Enter / leave the authored roof-cut top-down view. Only valid when `hasTopDownCut`.
+    func setTopDownMode(_ enabled: Bool) {
+        if enabled {
+            guard hasTopDownCut, let cutHeight = savedTopDownCutHeight else { return }
+            if isTopDownActive { return }
+            setPointClickMode(false)
+            setMeasureMode(false)
+
+            topDownSavedPosition = cameraPosition
+            topDownSavedYaw = cameraYaw
+            topDownSavedPitch = cameraPitch
+
+            topDownCutHeight = cutHeight
+            if let ortho = savedTopDownOrthoHalfExtent, ortho > 0 {
+                topDownOrthoHalfExtent = ortho
+            } else if let zout = savedTopDownOrthoZoomOut, zout > 0 {
+                topDownOrthoHalfExtent = zout
+            }
+
+            if let yaw = savedTopDownYaw { cameraYaw = yaw }
+            if let pitch = savedTopDownPitch { cameraPitch = pitch }
+            if let center = savedTopDownCenter {
+                cameraPosition = center
+            } else {
+                cameraPitch = -Constants.cameraPitchLimit
+                setHeightAlongUp(topDownCutHeight + topDownHoverDistance(for: topDownOrthoHalfExtent))
+            }
+            clampTopDownZoomToLimits()
+
+            isTopDownActive = true
+            syncTopDownClipPlane()
+            topDownStatus = String(
+                format: "Top Down · roof %.2f m · zoom in to cut · zoom out capped by nav",
+                topDownCutHeight
+            )
+        } else {
+            guard isTopDownActive else { return }
+            isTopDownActive = false
+            topDownStatus = "Top Down off"
+            (modelRenderer as? SplatRenderer)?.modelClipPlane = nil
+            cameraPosition = topDownSavedPosition
+            cameraYaw = topDownSavedYaw
+            cameraPitch = topDownSavedPitch
+            persistentFloorY = heightAlongUp(cameraPosition)
+            applyStairOrGroundHeight()
+        }
+        onTopDownStateChanged?()
+    }
+
+    /// Zoom in / out along navigation up (buttons). Zoom in toward cut; zoom out to nav max.
+    func nudgeTopDownZoom(zoomIn: Bool) {
+        guard isTopDownActive else { return }
+        let heightAbove = max(0.001, heightAlongUp(cameraPosition) - topDownCutHeight)
+        // ~20% of current height per click, floored so it still moves when close.
+        let step = max(0.08, heightAbove * 0.2)
+        if zoomIn {
+            setHeightAlongUp(heightAlongUp(cameraPosition) - step)
+        } else {
+            setHeightAlongUp(heightAlongUp(cameraPosition) + step)
+        }
+        clampTopDownZoomToLimits()
+        topDownStatus = String(
+            format: "Top Down · roof %.2f m · view %.2f m",
+            topDownCutHeight,
+            topDownOrthoHalfExtent
+        )
+        onTopDownStateChanged?()
+    }
+
+    private func topDownHoverDistance(for halfExtent: Float) -> Float {
+        let fovy = Float(Constants.fovy.radians)
+        return max(0.001, halfExtent / max(1e-4, tan(fovy * 0.5)))
+    }
+
+    private func refreshTopDownOrthoFromCamera() {
+        let heightAboveCut = abs(heightAlongUp(cameraPosition) - topDownCutHeight)
+        let fovy = Float(Constants.fovy.radians)
+        topDownOrthoHalfExtent = max(0.001, heightAboveCut * tan(fovy * 0.5))
+    }
+
+    /// Zoom in stops at the cut plane; zoom out stops at nav `topdown_ortho_zoom_out`.
+    private func clampTopDownZoomToLimits() {
+        // Max zoom in = the cut itself (never go below / through the roof slice).
+        var height = max(topDownCutHeight + 0.001, heightAlongUp(cameraPosition))
+
+        // Max zoom out = authored farthest view width from SampleApp.
+        if let zout = savedTopDownOrthoZoomOut, zout > 0 {
+            let maxHeight = topDownCutHeight + topDownHoverDistance(for: zout)
+            height = min(height, maxHeight)
+        }
+
+        setHeightAlongUp(height)
+        refreshTopDownOrthoFromCamera()
+    }
+
+    private func modelClipPlane(cutHeight: Float) -> SIMD4<Float> {
+        let cal = usesCustomOrientation
+            ? matrix_identity_float4x4
+            : matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 0, 1))
+        let up4 = SIMD4<Float>(navigationUp.x, navigationUp.y, navigationUp.z, 0)
+        let n = simd_normalize((cal.transpose * up4).xyz)
+        return SIMD4(n.x, n.y, n.z, -cutHeight)
+    }
+
+    private func syncTopDownClipPlane() {
+        guard let splat = modelRenderer as? SplatRenderer else { return }
+        if isTopDownActive {
+            splat.modelClipPlane = modelClipPlane(cutHeight: topDownCutHeight)
+        } else {
+            splat.modelClipPlane = nil
+        }
+    }
+
     func clearPhotoSearch() {
         photoSearchTask?.cancel()
         photoSearchTask = nil
@@ -1135,8 +1338,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         defer { lastCameraUpdateTimestamp = now }
 
         guard let lastCameraUpdateTimestamp else { return }
-        let deltaTime = Float(now.timeIntervalSince(lastCameraUpdateTimestamp))
-        guard deltaTime > 0, movement.isActive else { return }
+        let deltaTime = min(1.0 / 30.0, Float(now.timeIntervalSince(lastCameraUpdateTimestamp)))
+        guard deltaTime > 0 else { return }
+
+        if isTopDownActive {
+            updateTopDownCamera(deltaTime: deltaTime)
+            return
+        }
+
+        guard movement.isActive else { return }
 
         // Ground-plane movement (FPS-style): ignore look pitch so forward never flies up/down.
         var forward = cameraForward
@@ -1189,6 +1399,35 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         } else {
             applyStairOrGroundHeight()
             setHeightAlongUp(persistentFloorY)
+        }
+    }
+
+    private func updateTopDownCamera(deltaTime: Float) {
+        guard movement.isActive else { return }
+
+        // Flat pan like walk mode: W/S forward-back on the ground plane, A/D strafe.
+        // Zoom is via the magnifying-glass buttons (not W/S).
+        var forward = cameraForward
+        forward -= simd_dot(forward, navigationUp) * navigationUp
+        var right = cameraRight
+        right -= simd_dot(right, navigationUp) * navigationUp
+        let forwardLength = simd_length(forward)
+        let rightLength = simd_length(right)
+        guard forwardLength > 1e-5, rightLength > 1e-5 else { return }
+        forward /= forwardLength
+        right /= rightLength
+
+        var direction = SIMD3<Float>.zero
+        if movement.forward { direction += forward }
+        if movement.backward { direction -= forward }
+        if movement.right { direction += right }
+        if movement.left { direction -= right }
+
+        let length = simd_length(direction)
+        if length > 1e-5 {
+            cameraPosition += (direction / length) * cameraMoveSpeed * deltaTime
+            // Keep height within zoom limits without changing lateral pan.
+            clampTopDownZoomToLimits()
         }
     }
 
@@ -1371,16 +1610,18 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
     func draw(in view: MTKView) {
         guard let modelRenderer, modelRenderer.isReadyToRender else {
-            failPendingScreenshot()
             return
         }
-        guard let drawable = view.currentDrawable else { return }
+        guard let drawable = view.currentDrawable else {
+            // Don't fail immediately — drawable can be nil for a frame. Timeout handles stuck captures.
+            return
+        }
 
         _ = inFlightSemaphore.wait(timeout: DispatchTime.distantFuture)
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             inFlightSemaphore.signal()
-            failPendingScreenshot()
+            screenshotWaiter.finish(nil)
             return
         }
 
@@ -1456,37 +1697,28 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
                 )
             }
 
-            if let continuation = screenshotContinuation {
-                screenshotContinuation = nil
+            if screenshotWaiter.hasPending {
                 enqueueScreenshotReadback(
-                    from: colorTexture,
-                    commandBuffer: commandBuffer,
-                    continuation: continuation
+                    from: drawable.texture,
+                    commandBuffer: commandBuffer
                 )
             }
             commandBuffer.present(drawable)
         } else {
-            failPendingScreenshot()
+            screenshotWaiter.finish(nil)
         }
 
         commandBuffer.commit()
     }
 
-    private func failPendingScreenshot() {
-        guard let continuation = screenshotContinuation else { return }
-        screenshotContinuation = nil
-        continuation.resume(returning: nil)
-    }
-
     private func enqueueScreenshotReadback(
         from texture: MTLTexture,
-        commandBuffer: MTLCommandBuffer,
-        continuation: CheckedContinuation<PlatformImage?, Never>
+        commandBuffer: MTLCommandBuffer
     ) {
         let width = texture.width
         let height = texture.height
         guard width > 0, height > 0 else {
-            continuation.resume(returning: nil)
+            screenshotWaiter.finish(nil)
             return
         }
 
@@ -1497,13 +1729,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         guard !texture.isFramebufferOnly else {
             Self.log.error("Screenshot source is framebufferOnly; set MTKView.framebufferOnly = false")
-            continuation.resume(returning: nil)
+            screenshotWaiter.finish(nil)
             return
         }
 
         guard let buffer = device.makeBuffer(length: byteCount, options: .storageModeShared),
               let blit = commandBuffer.makeBlitCommandEncoder() else {
-            continuation.resume(returning: nil)
+            screenshotWaiter.finish(nil)
             return
         }
 
@@ -1520,16 +1752,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         )
         blit.endEncoding()
 
-        commandBuffer.addCompletedHandler { _ in
+        commandBuffer.addCompletedHandler { [weak self] _ in
             let bgraData = Data(bytes: buffer.contents(), count: byteCount)
-            let image = PlatformImage.fromBGRA(
-                bgraData: bgraData,
-                width: width,
-                height: height,
-                bytesPerRow: bytesPerRow
-            )
             DispatchQueue.main.async {
-                continuation.resume(returning: image)
+                let image = PlatformImage.fromBGRA(
+                    bgraData: bgraData,
+                    width: width,
+                    height: height,
+                    bytesPerRow: bytesPerRow
+                )
+                self?.screenshotWaiter.finish(image)
             }
         }
     }

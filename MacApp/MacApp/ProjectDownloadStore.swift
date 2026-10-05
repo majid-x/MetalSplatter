@@ -188,6 +188,7 @@ enum ProjectDownloadStore {
             isSPZ: false,
             useServerCalibration: false,
             measureFactor: 1,
+            moveSpeed: nil,
             createdAt: nil
         )
     }

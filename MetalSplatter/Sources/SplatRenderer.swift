@@ -70,6 +70,13 @@ public final class SplatRenderer: @unchecked Sendable {
 
         var splatCount: UInt32
         var indexedSplatCount: UInt32
+
+        /// Model-space half-space: discard when `clipEnabled != 0` and `dot(n, p) + d > 0`.
+        var clipPlane: SIMD4<Float> = .zero
+        var clipEnabled: UInt32 = 0
+        var _clipPadding0: UInt32 = 0
+        var _clipPadding1: UInt32 = 0
+        var _clipPadding2: UInt32 = 0
     }
 
     // Keep in sync with Shaders.metal : UniformsArray
@@ -117,6 +124,10 @@ public final class SplatRenderer: @unchecked Sendable {
      The color to clear the render target to before rendering splats.
      */
     public let clearColor: MTLClearColor
+
+    /// Optional model-space clip plane. When set, discards splats with `dot(n, p) + d > 0`.
+    /// Used by SampleApp top-down roof cut. `nil` disables clipping.
+    public var modelClipPlane: SIMD4<Float>? = nil
 
     private var writeDepth: Bool {
         depthFormat != .invalid
@@ -687,6 +698,7 @@ public final class SplatRenderer: @unchecked Sendable {
             let tanHalfFovX = 1 / proj00
             let tanHalfFovY = 1 / proj11
 
+            let clip = modelClipPlane
             let uniforms = Uniforms(projectionMatrix: viewport.projectionMatrix,
                                     viewMatrix: viewport.viewMatrix,
                                     cameraPosition: MTLPackedFloat3Make(cameraPos.x, cameraPos.y, cameraPos.z),
@@ -697,7 +709,9 @@ public final class SplatRenderer: @unchecked Sendable {
                                     tanHalfFovY: tanHalfFovY,
                                     chunkCount: chunkCount,
                                     splatCount: splatCount,
-                                    indexedSplatCount: indexedSplatCount)
+                                    indexedSplatCount: indexedSplatCount,
+                                    clipPlane: clip ?? .zero,
+                                    clipEnabled: clip == nil ? 0 : 1)
             renderState.uniforms.pointee.setUniforms(index: i, uniforms)
         }
     }

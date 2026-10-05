@@ -65,6 +65,13 @@ typedef struct
      */
     uint splatCount;
     uint indexedSplatCount;
+
+    // Model-space half-space clip: discard when clipEnabled != 0 and dot(n, p) + d > 0.
+    float4 clipPlane; // xyz = normal, w = d
+    uint clipEnabled;
+    uint _clipPadding0;
+    uint _clipPadding1;
+    uint _clipPadding2;
 } Uniforms;
 
 typedef struct

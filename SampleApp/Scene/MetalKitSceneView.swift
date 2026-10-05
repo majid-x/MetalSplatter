@@ -44,6 +44,11 @@ struct MetalKitSceneView: View {
     @State private var isRecordingStairs = false
     @State private var isSettingCameraAngles = false
     @State private var isSettingStartPoint = false
+    @State private var topDownPhase: MetalKitSceneRenderer.TopDownPhase = .off
+    @State private var topDownStatus = "Top Down off"
+    @State private var topDownOrthoSlider: Double = 10
+    /// Class flag so slider sync is visible to onChange even across SwiftUI state coalescing.
+    @State private var topDownSliderSync = TopDownSliderSyncGate()
     @State private var showMoveSpeedControls = false
     @State private var moveSpeedSlider: Double = Double(Constants.cameraMoveSpeed)
     @State private var showMeasureSizeControls = false
@@ -51,6 +56,8 @@ struct MetalKitSceneView: View {
     @State private var heightNudgeSensitivity: Double = 0.05
     @State private var cameraRotateSensitivity: Double = 90
     @State private var blockSize: Double = Double(Constants.collisionBlockWidth)
+
+    private var isTopDownMode: Bool { topDownPhase != .off }
 
     private var isCollisionModeActive: Bool {
         isPlacingCollisionBlocks
@@ -83,6 +90,17 @@ struct MetalKitSceneView: View {
                         measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
                         measureCalibrationFactor = rendererBox.renderer?.measureCalibrationFactor ?? 1.0
                         lastRawSegmentMeters = rendererBox.renderer?.lastRawSegmentMeters
+                    },
+                    onTopDownStateChanged: {
+                        topDownPhase = rendererBox.renderer?.topDownPhase ?? .off
+                        topDownStatus = rendererBox.renderer?.topDownStatus ?? "Top Down off"
+                        if let ortho = rendererBox.renderer?.topDownOrthoHalfExtent {
+                            topDownSliderSync.isSyncing = true
+                            topDownOrthoSlider = Double(ortho)
+                            DispatchQueue.main.async {
+                                topDownSliderSync.isSyncing = false
+                            }
+                        }
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,6 +135,11 @@ struct MetalKitSceneView: View {
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
                                     showMeasureSizeControls = false
+                                    if isTopDownMode {
+                                        rendererBox.renderer?.setTopDownMode(false)
+                                        topDownPhase = .off
+                                        topDownStatus = "Top Down off"
+                                    }
                                     applyPhotoAPIURLFromField()
                                 }
                                 rendererBox.renderer?.setPointClickMode(enabled)
@@ -150,6 +173,11 @@ struct MetalKitSceneView: View {
                                     isSettingStartPoint = false
                                     showMoveSpeedControls = false
                                     showMeasureSizeControls = false
+                                    if isTopDownMode {
+                                        rendererBox.renderer?.setTopDownMode(false)
+                                        topDownPhase = .off
+                                        topDownStatus = "Top Down off"
+                                    }
                                 }
                                 rendererBox.renderer?.setMeasureMode(enabled)
                                 measureMode = enabled
@@ -160,6 +188,129 @@ struct MetalKitSceneView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(measureMode ? Color(red: 0.2, green: 0.85, blue: 0.95) : .accentColor)
+
+                            Button(isTopDownMode ? "Top Down: On" : "Top Down View") {
+                                let enabled = !isTopDownMode
+#if os(macOS)
+                                rendererBox.cameraView?.setMouseLookActive(false)
+#endif
+                                if enabled {
+                                    pointClickMode = false
+                                    showPhotoPanel = false
+                                    measureMode = false
+                                    isPlacingCollisionBlocks = false
+                                    isSelectingCollisionBlocks = false
+                                    isRecordingCollision = false
+                                    isRecordingStairs = false
+                                    isRecordingClickCollision = false
+                                    isSettingCameraAngles = false
+                                    isSettingStartPoint = false
+                                    showMoveSpeedControls = false
+                                    showMeasureSizeControls = false
+                                    rendererBox.renderer?.setMeasureMode(false)
+                                    rendererBox.renderer?.setPointClickMode(false)
+                                    topDownOrthoSlider = Double(rendererBox.renderer?.topDownOrthoHalfExtent ?? 10)
+                                }
+                                rendererBox.renderer?.setTopDownMode(enabled)
+                                topDownPhase = rendererBox.renderer?.topDownPhase ?? .off
+                                topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isTopDownMode ? Color(red: 0.55, green: 0.35, blue: 0.85) : .accentColor)
+
+                            if isTopDownMode || topDownStatus != "Top Down off" {
+                                Text(topDownStatus)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            if isTopDownMode {
+                                if topDownPhase == .adjusting {
+                                    HStack(spacing: 8) {
+                                        Button("Up") {
+                                            rendererBox.renderer?.nudgeTopDownHeight(Float(heightNudgeSensitivity))
+                                            topDownPhase = rendererBox.renderer?.topDownPhase ?? .adjusting
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        Button("Down") {
+                                            rendererBox.renderer?.nudgeTopDownHeight(-Float(heightNudgeSensitivity))
+                                            topDownPhase = rendererBox.renderer?.topDownPhase ?? .adjusting
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        Button("Cut") {
+                                            rendererBox.cameraView?.setMouseLookActive(false)
+                                            rendererBox.renderer?.applyTopDownCut()
+                                            topDownPhase = rendererBox.renderer?.topDownPhase ?? .cut
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(Color(red: 0.9, green: 0.35, blue: 0.35))
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(String(format: "Height step · %.2f m", heightNudgeSensitivity))
+                                            .font(.caption)
+                                            .foregroundStyle(.white)
+                                        Slider(value: $heightNudgeSensitivity, in: 0.01...0.5, step: 0.01)
+                                            .frame(width: 180)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+
+                                if topDownPhase == .cut {
+                                    HStack(spacing: 8) {
+                                        Button("Recut") {
+                                            rendererBox.renderer?.clearTopDownCut()
+                                            topDownPhase = rendererBox.renderer?.topDownPhase ?? .adjusting
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        Button("Save Cut") {
+                                            rendererBox.renderer?.saveTopDownCutForExport()
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(Color(red: 0.3, green: 0.75, blue: 0.45))
+                                    }
+
+                                    HStack(spacing: 8) {
+                                        Button("Save Max Zoom In") {
+                                            rendererBox.renderer?.saveTopDownMaxZoomIn()
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(Color(red: 0.2, green: 0.55, blue: 0.95))
+                                        Button("Save Max Zoom Out") {
+                                            rendererBox.renderer?.saveTopDownMaxZoomOut()
+                                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(Color(red: 0.2, green: 0.55, blue: 0.95))
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(String(format: "Height · %.2f m view width (W/S @ move speed)", topDownOrthoSlider))
+                                            .font(.caption)
+                                            .foregroundStyle(.white)
+                                        Slider(value: $topDownOrthoSlider, in: 0.001...500, step: 0.001)
+                                            .frame(width: 180)
+                                            .onChange(of: topDownOrthoSlider) { _, value in
+                                                guard !topDownSliderSync.isSyncing else { return }
+                                                rendererBox.renderer?.setTopDownViewWidth(Float(value))
+                                            }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
 
                             if measureMode || measureStatus != "Measure off" {
                                 Text(measureStatus)
@@ -809,7 +960,7 @@ struct MetalKitSceneView: View {
                             .padding(8)
                             .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
 #elseif os(iOS)
-                        MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs || isSettingCameraAngles || isSettingStartPoint)
+                        MovementPad(rendererBox: rendererBox, showVertical: isRecordingStairs || isSettingCameraAngles || isSettingStartPoint || topDownPhase == .adjusting || topDownPhase == .cut)
 #endif
                     }
                 }
@@ -864,6 +1015,12 @@ struct MetalKitSceneView: View {
     private var helpCaption: String {
         if pointClickMode {
             return "Point Click on · click a surface to search photos · Esc exits look · toggle button to leave mode"
+        }
+        if topDownPhase == .adjusting {
+            return "Top Down · Up/Down or Q/E sets cut height · roof above you is preview-clipped · Cut locks floor plan"
+        }
+        if topDownPhase == .cut {
+            return "Top Down cut · Save Cut · fly to limits · Save Max Zoom In/Out · Download TXT (no extra Save needed)"
         }
         if isSettingCameraAngles {
             return "Set Camera Angles · Rotate ± / Lock rolls only around where you look · Save keeps it"
@@ -998,6 +1155,11 @@ final class RendererBox {
 #endif
 }
 
+/// Mutable gate for programmatic Top Down slider updates (avoids camera snap-back).
+private final class TopDownSliderSyncGate {
+    var isSyncing = false
+}
+
 #if os(iOS)
 private struct MovementPad: View {
     let rendererBox: RendererBox
@@ -1050,6 +1212,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
     var rendererBox: RendererBox
     var onPointClickStateChanged: () -> Void
     var onMeasureStateChanged: () -> Void
+    var onTopDownStateChanged: () -> Void
 
     final class Coordinator {
         var renderer: MetalKitSceneRenderer?
@@ -1071,6 +1234,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
         rendererBox.cameraView = view
         context.coordinator.renderer?.onPointClickStateChanged = onPointClickStateChanged
         context.coordinator.renderer?.onMeasureStateChanged = onMeasureStateChanged
+        context.coordinator.renderer?.onTopDownStateChanged = onTopDownStateChanged
     }
 #elseif os(iOS)
     func makeUIView(context: Context) -> CameraControlMTKView {
@@ -1083,6 +1247,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
         rendererBox.renderer = context.coordinator.renderer
         context.coordinator.renderer?.onPointClickStateChanged = onPointClickStateChanged
         context.coordinator.renderer?.onMeasureStateChanged = onMeasureStateChanged
+        context.coordinator.renderer?.onTopDownStateChanged = onTopDownStateChanged
     }
 #endif
 
@@ -1102,6 +1267,7 @@ private struct MetalKitSceneRepresentable: PlatformViewRepresentable {
 #endif
         renderer?.onPointClickStateChanged = onPointClickStateChanged
         renderer?.onMeasureStateChanged = onMeasureStateChanged
+        renderer?.onTopDownStateChanged = onTopDownStateChanged
 
         Task {
             do {
@@ -1218,6 +1384,12 @@ final class CameraControlMTKView: MTKView {
             return
         }
 
+        // Top Down keeps the cursor visible — look by dragging, no click-to-lock.
+        if renderer?.topDownPhase == .cut || renderer?.topDownPhase == .adjusting {
+            setMouseLookActive(false)
+            return
+        }
+
         setMouseLookActive(true)
     }
 
@@ -1242,6 +1414,11 @@ final class CameraControlMTKView: MTKView {
     override func mouseDragged(with event: NSEvent) {
         if renderer?.isSelectingCollisionBlocks == true, !isMouseLookActive {
             renderer?.resizeSelectedCollisionBlock(deltaX: event.deltaX, deltaY: event.deltaY)
+            return
+        }
+        let topDownDragLook = renderer?.topDownPhase == .cut || renderer?.topDownPhase == .adjusting
+        if topDownDragLook {
+            renderer?.applyLookDelta(deltaX: event.deltaX, deltaY: event.deltaY)
             return
         }
         guard isMouseLookActive,
@@ -1310,7 +1487,8 @@ final class CameraControlMTKView: MTKView {
         let stairRecording = renderer.isRecordingStairs
         let settingAngles = renderer.isSettingCameraAngles
         let settingStart = renderer.isSettingStartPoint
-        let allowVertical = stairRecording || settingAngles || settingStart
+        let topDownFreeFly = renderer.topDownPhase == .adjusting || renderer.topDownPhase == .cut
+        let allowVertical = stairRecording || settingAngles || settingStart || topDownFreeFly
         renderer.movement = .init(
             forward: pressedKeys.contains(KeyCode.w) || pressedKeys.contains(KeyCode.upArrow),
             backward: pressedKeys.contains(KeyCode.s) || pressedKeys.contains(KeyCode.downArrow),
