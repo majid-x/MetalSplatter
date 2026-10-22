@@ -112,25 +112,47 @@ struct BookingView: View {
         locationGate == .ok && selectedPlace != nil && coverage != nil
     }
 
+    private var showCoverageAside: Bool { step == .location }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                header
-                progressBar
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(red: 0.95, green: 0.55, blue: 0.52))
+        GeometryReader { geo in
+            let narrow = geo.size.width <= 860
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        header
+                        progressBar
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(red: 0.95, green: 0.55, blue: 0.52))
+                        }
+                        stepContent
+                        navButtons
+
+                        if showCoverageAside, narrow {
+                            BookingCoverageAside(compactMapHeight: true)
+                                .frame(maxWidth: 400, alignment: .leading)
+                                .padding(.top, 8)
+                        }
+                    }
+                    .padding(.horizontal, isCompact ? 20 : 36)
+                    .padding(.top, 12)
+                    .padding(.bottom, showCoverageAside && !narrow ? 320 : 40)
+                    .frame(maxWidth: 720, alignment: .leading)
                 }
-                stepContent
-                navButtons
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                if showCoverageAside, !narrow {
+                    BookingCoverageAside(compactMapHeight: false)
+                        .frame(width: min(380, geo.size.width - 48))
+                        .padding(.trailing, 24)
+                        .padding(.bottom, 24)
+                        .zIndex(5)
+                }
             }
-            .padding(.horizontal, isCompact ? 20 : 36)
-            .padding(.top, 12)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 720, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear(perform: hydrateContact)
         .onChange(of: addressQuery) { _, newValue in
             scheduleGeocode(for: newValue)

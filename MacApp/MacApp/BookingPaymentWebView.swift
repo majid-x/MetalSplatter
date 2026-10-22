@@ -141,6 +141,7 @@ struct BookingPaymentWebView: PlatformViewRepresentable {
             const stripe = Stripe("\(pk)");
             const elements = stripe.elements();
             const card = elements.create("card", {
+              hidePostalCode: true,
               style: {
                 base: {
                   color: "#ffffff",

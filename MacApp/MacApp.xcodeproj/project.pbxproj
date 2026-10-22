@@ -58,6 +58,7 @@
 		C10000000000000000000061 /* BookingAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000061 /* BookingAPIClient.swift */; };
 		C10000000000000000000062 /* BookingPaymentWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000062 /* BookingPaymentWebView.swift */; };
 		C10000000000000000000063 /* BookingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000063 /* BookingView.swift */; };
+		C10000000000000000000064 /* BookingCoverageMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000064 /* BookingCoverageMapView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -111,6 +112,7 @@
 		C20000000000000000000061 /* BookingAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingAPIClient.swift; sourceTree = "<group>"; };
 		C20000000000000000000062 /* BookingPaymentWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingPaymentWebView.swift; sourceTree = "<group>"; };
 		C20000000000000000000063 /* BookingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingView.swift; sourceTree = "<group>"; };
+		C20000000000000000000064 /* BookingCoverageMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingCoverageMapView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -151,6 +153,7 @@
 				C20000000000000000000060 /* BookingModels.swift */,
 				C20000000000000000000061 /* BookingAPIClient.swift */,
 				C20000000000000000000062 /* BookingPaymentWebView.swift */,
+				C20000000000000000000064 /* BookingCoverageMapView.swift */,
 				C20000000000000000000063 /* BookingView.swift */,
 				C20000000000000000000042 /* SettingsView.swift */,
 				C20000000000000000000040 /* AppLegal.swift */,
@@ -322,6 +325,7 @@
 				C10000000000000000000060 /* BookingModels.swift in Sources */,
 				C10000000000000000000061 /* BookingAPIClient.swift in Sources */,
 				C10000000000000000000062 /* BookingPaymentWebView.swift in Sources */,
+				C10000000000000000000064 /* BookingCoverageMapView.swift in Sources */,
 				C10000000000000000000063 /* BookingView.swift in Sources */,
 				C10000000000000000000042 /* SettingsView.swift in Sources */,
 				C10000000000000000000040 /* AppLegal.swift in Sources */,
