@@ -112,47 +112,25 @@ struct BookingView: View {
         locationGate == .ok && selectedPlace != nil && coverage != nil
     }
 
-    private var showCoverageAside: Bool { step == .location }
-
     var body: some View {
-        GeometryReader { geo in
-            let narrow = geo.size.width <= 860
-            ZStack(alignment: .bottomTrailing) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
-                        header
-                        progressBar
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color(red: 0.95, green: 0.55, blue: 0.52))
-                        }
-                        stepContent
-                        navButtons
-
-                        if showCoverageAside, narrow {
-                            BookingCoverageAside(compactMapHeight: true)
-                                .frame(maxWidth: 400, alignment: .leading)
-                                .padding(.top, 8)
-                        }
-                    }
-                    .padding(.horizontal, isCompact ? 20 : 36)
-                    .padding(.top, 12)
-                    .padding(.bottom, showCoverageAside && !narrow ? 320 : 40)
-                    .frame(maxWidth: 720, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                progressBar
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(red: 0.95, green: 0.55, blue: 0.52))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                if showCoverageAside, !narrow {
-                    BookingCoverageAside(compactMapHeight: false)
-                        .frame(width: min(380, geo.size.width - 48))
-                        .padding(.trailing, 24)
-                        .padding(.bottom, 24)
-                        .zIndex(5)
-                }
+                stepContent
+                navButtons
             }
+            .padding(.horizontal, isCompact ? 20 : 36)
+            .padding(.top, 12)
+            .padding(.bottom, 40)
+            .frame(maxWidth: 720, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear(perform: hydrateContact)
         .onChange(of: addressQuery) { _, newValue in
             scheduleGeocode(for: newValue)
@@ -221,76 +199,96 @@ struct BookingView: View {
     // MARK: - Steps
 
     private var locationStep: some View {
-        card(title: "Location", subtitle: "Search a US address or use your current location.") {
-            VStack(alignment: .leading, spacing: 14) {
-                field(title: "Address", text: $addressQuery, prompt: "Street, city, state…")
+        VStack(alignment: .leading, spacing: 16) {
+            card(title: "Location", subtitle: "Search a US address or use your current location.") {
+                VStack(alignment: .leading, spacing: 14) {
+                    field(title: "Address", text: $addressQuery, prompt: "Street, city, state…")
 
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await useCurrentLocation() }
-                    } label: {
-                        pillLabel(title: isBusy ? "Locating…" : "Use current location", systemImage: "location")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isBusy)
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await useCurrentLocation() }
+                        } label: {
+                            pillLabel(title: isBusy ? "Locating…" : "Use current location", systemImage: "location")
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBusy)
 
-                    if isSearching {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    }
-                }
-
-                if !suggestions.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(suggestions) { place in
-                            Button {
-                                selectPlace(place)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(.white.opacity(0.45))
-                                    Text(place.label)
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(.white.opacity(0.9))
-                                        .multilineTextAlignment(.leading)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 4)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            Divider().overlay(Color.white.opacity(0.08))
+                        if isSearching {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
                         }
                     }
-                }
 
-                if let gateMessage = locationGate.message {
-                    Text(gateMessage)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(red: 0.95, green: 0.72, blue: 0.45))
-                }
-
-                if let place = selectedPlace, let coverage {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(place.label)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
-                        Text(
-                            coverage.inCoverage
-                                ? "Inside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · \(BookingGeo.advanceDisplay) advance required"
-                                : "Outside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · no advance; earliest date is tomorrow"
-                        )
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.45))
-                        Text("Rate \(BookingGeo.rateDisplay) · base \(BookingGeo.baseLabel)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.3))
+                    if !suggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(suggestions) { place in
+                                Button {
+                                    selectPlace(place)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "mappin.and.ellipse")
+                                            .foregroundStyle(.white.opacity(0.45))
+                                        Text(place.label)
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(.white.opacity(0.9))
+                                            .multilineTextAlignment(.leading)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 4)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                Divider().overlay(Color.white.opacity(0.08))
+                            }
+                        }
                     }
-                    .padding(.top, 4)
+
+                    if let gateMessage = locationGate.message {
+                        Text(gateMessage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(red: 0.95, green: 0.72, blue: 0.45))
+                    }
+
+                    if let place = selectedPlace {
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(place.label)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                                if let coverage {
+                                    Text(
+                                        coverage.inCoverage
+                                            ? "Inside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · \(BookingGeo.advanceDisplay) advance required"
+                                            : "Outside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · no advance; earliest date is tomorrow"
+                                    )
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    Text("Rate \(BookingGeo.rateDisplay) · base \(BookingGeo.baseLabel)")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.white.opacity(0.3))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Button {
+                                clearSelectedLocation()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(.white.opacity(0.45))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear selected location")
+                        }
+                        .padding(.top, 4)
+                    }
                 }
             }
+
+            BookingCoverageAside(compactMapHeight: isCompact)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -659,6 +657,16 @@ struct BookingView: View {
         if selectedDate < minDate {
             selectedDate = minDate
         }
+    }
+
+    private func clearSelectedLocation() {
+        selectedPlace = nil
+        coverage = nil
+        addressQuery = ""
+        suggestions = []
+        locationGate = .idle
+        errorMessage = nil
+        selectedDate = BookingSlots.minSelectableDate(inCoverage: true)
     }
 
     private func scheduleGeocode(for query: String) {

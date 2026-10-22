@@ -1,96 +1,46 @@
+import MapKit
 import SwiftUI
-import WebKit
-#if canImport(UIKit)
-import UIKit
-#endif
 
-#if os(macOS)
-private typealias PlatformViewRepresentable = NSViewRepresentable
-#else
-private typealias PlatformViewRepresentable = UIViewRepresentable
-#endif
-
-/// Leaflet + OSM coverage map (matches web `BookingCoverageMap`).
-struct BookingCoverageMapCanvas: PlatformViewRepresentable {
-#if os(macOS)
-    func makeNSView(context: Context) -> WKWebView { makeWebView() }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
-#else
-    func makeUIView(context: Context) -> WKWebView { makeWebView() }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
-#endif
-
-    private func makeWebView() -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-#if os(macOS)
-        webView.setValue(false, forKey: "drawsBackground")
-#else
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-#endif
-        webView.loadHTMLString(Self.html, baseURL: URL(string: "https://www.vroomk.com"))
-        return webView
+/// Native coverage map: base office + 60 mi radius.
+struct BookingCoverageMapCanvas: View {
+    private var center: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: BookingGeo.baseLat, longitude: BookingGeo.baseLng)
     }
 
-    private static let html: String = {
-        let lat = BookingGeo.baseLat
-        let lng = BookingGeo.baseLng
-        let radiusM = BookingGeo.radiusMiles * 1609.344
-        let address = BookingGeo.baseLabel
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-          <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-          <style>
-            html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #1a1a1a; }
-            .leaflet-container { background: #1a1a1a; font: 12px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; }
-            .leaflet-control-attribution { font-size: 10px; }
-          </style>
-        </head>
-        <body>
-          <div id="map"></div>
-          <script>
-            const center = [\(lat), \(lng)];
-            const map = L.map("map", {
-              scrollWheelZoom: false,
-              zoomControl: true,
-              attributionControl: true
-            });
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-              maxZoom: 19,
-              attribution: "&copy; OpenStreetMap"
-            }).addTo(map);
-            const circle = L.circle(center, {
-              radius: \(radiusM),
-              color: "#4285F4",
-              weight: 2,
-              fillColor: "#4285F4",
-              fillOpacity: 0.18
-            }).addTo(map);
-            L.circleMarker(center, {
-              radius: 7,
-              color: "#ffffff",
-              weight: 2,
-              fillColor: "#E53935",
-              fillOpacity: 1
-            }).addTo(map).bindTooltip("\(address)", { direction: "top", offset: [0, -8] });
-            map.fitBounds(circle.getBounds(), { padding: [12, 12], maxZoom: 9 });
-          </script>
-        </body>
-        </html>
-        """
-    }()
+    private var radiusMeters: CLLocationDistance {
+        BookingGeo.radiusMiles * 1609.344
+    }
+
+    private var region: MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: center,
+            latitudinalMeters: radiusMeters * 2.35,
+            longitudinalMeters: radiusMeters * 2.35
+        )
+    }
+
+    var body: some View {
+        Map(initialPosition: .region(region), interactionModes: [.pan, .zoom]) {
+            MapCircle(center: center, radius: radiusMeters)
+                .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.96).opacity(0.18))
+                .stroke(Color(red: 0.26, green: 0.52, blue: 0.96), lineWidth: 2)
+
+            Annotation(BookingGeo.baseLabel, coordinate: center, anchor: .center) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.90, green: 0.22, blue: 0.21))
+                        .frame(width: 14, height: 14)
+                    Circle()
+                        .strokeBorder(.white, lineWidth: 2)
+                        .frame(width: 14, height: 14)
+                }
+            }
+        }
+        .mapStyle(.standard(elevation: .flat))
+    }
 }
 
-/// Rate + coverage map aside (web `.bk-aside` / `.bk-rate` / `.bk-map*`).
+/// Rate + coverage map block under the location form.
 struct BookingCoverageAside: View {
     var compactMapHeight: Bool = false
 
