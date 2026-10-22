@@ -145,6 +145,13 @@ struct ClientSceneView: View {
                 if isTopDownActive {
                     HStack(spacing: 6) {
                         TopDownZoomButton(
+                            systemImage: "arrow.counterclockwise",
+                            help: "Reset top-down view"
+                        ) {
+                            rendererBox.renderer?.resetTopDownView()
+                            topDownStatus = rendererBox.renderer?.topDownStatus ?? topDownStatus
+                        }
+                        TopDownZoomButton(
                             systemImage: "plus.magnifyingglass",
                             help: "Zoom in"
                         ) {
@@ -287,6 +294,17 @@ struct ClientSceneView: View {
                                     _ = rendererBox.renderer?.undoMeasurePoint()
                                     measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
                                     measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                                }
+                                MeasureSubButton(
+                                    title: "Delete All",
+                                    systemImage: "trash.fill",
+                                    isActive: false,
+                                    accent: Color(red: 1.0, green: 0.35, blue: 0.35)
+                                ) {
+                                    rendererBox.renderer?.clearMeasureGeometry()
+                                    measureDeleteMode = false
+                                    measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
+                                    measureLabelOverlays = []
                                 }
                             }
                         }

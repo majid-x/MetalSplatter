@@ -119,7 +119,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private enum MeasureConstants {
         static let snapRadius: Float = 0.25
         static let laserThickness: Float = 0.015
-        static let pointLimit = 10
         static let peripheralAngleDegrees: Float = 60
         /// PlayCanvas reticleScaleOffset default (cone).
         static let reticleScale = SIMD3<Float>(0.06, 0.09, 0.06)
@@ -559,6 +558,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureDeleteHoverIndex = nil
         lastMeasureHoverViewPoint = nil
         measureLabelOverlays = []
+        measureDeleteMode = false
+        measureStatus = measureMode ? "Cleared · Measure on · click two points" : "Measure off"
+        onMeasureStateChanged?()
     }
 
     /// PlayCanvas hover tracking — uses the same alpha-clipped pick pass as click.
@@ -619,10 +621,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     private func addMeasurePoint(_ modelPoint: SIMD3<Float>) {
-        if measureNodes.count >= MeasureConstants.pointLimit {
-            measureNodes.removeFirst()
-        }
-
         // Fixed 2-click chains: open start → complete segment → next click starts a new chain.
         let isStart: Bool
         var distance: Float?
@@ -722,30 +720,30 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureLabelOverlays = overlays
     }
 
-    /// PlayCanvas `getFormattedDistance` with imperial symbols (`'` / `"`) and 1/32" fractions.
+    /// Imperial distance: `feet' inches fraction"`.
+    /// Default rounds to nearest 1/4". Exact mode (Settings) uses 1/32".
     private static func formatMeasureDistance(meters: Float) -> String {
         let totalFeet = Double(meters) * 3.280839895
         var feet = Int(floor(totalFeet))
-        var inches = 0
-        var fractionStr = ""
-
         let remainingInches = (totalFeet - Double(feet)) * 12.0
-        inches = Int(floor(remainingInches))
+        var inches = Int(floor(remainingInches))
         let fractionOfInch = remainingInches - Double(inches)
 
-        // Round to nearest 32nd (PlayCanvas enableImperialFractions).
-        var numerator = Int((fractionOfInch * 32.0).rounded())
-        if numerator == 32 {
+        let denominator = MeasurementDisplayPreferences.showExactMeasurements ? 32 : 4
+        var numerator = Int((fractionOfInch * Double(denominator)).rounded())
+        if numerator == denominator {
             numerator = 0
             inches += 1
         }
-        if inches == 12 {
-            inches = 0
+        if inches >= 12 {
+            inches -= 12
             feet += 1
         }
+
+        var fractionStr = ""
         if numerator > 0 {
-            let divisor = gcd(numerator, 32)
-            fractionStr = " \(numerator / divisor)/\(32 / divisor)"
+            let divisor = gcd(numerator, denominator)
+            fractionStr = " \(numerator / divisor)/\(denominator / divisor)"
         }
 
         return "\(feet)' \(inches)\(fractionStr)\""
@@ -882,21 +880,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             topDownSavedPitch = cameraPitch
 
             topDownCutHeight = cutHeight
-            if let ortho = savedTopDownOrthoHalfExtent, ortho > 0 {
-                topDownOrthoHalfExtent = ortho
-            } else if let zout = savedTopDownOrthoZoomOut, zout > 0 {
-                topDownOrthoHalfExtent = zout
-            }
-
-            if let yaw = savedTopDownYaw { cameraYaw = yaw }
-            if let pitch = savedTopDownPitch { cameraPitch = pitch }
-            if let center = savedTopDownCenter {
-                cameraPosition = center
-            } else {
-                cameraPitch = -Constants.cameraPitchLimit
-                setHeightAlongUp(topDownCutHeight + topDownHoverDistance(for: topDownOrthoHalfExtent))
-            }
-            clampTopDownZoomToLimits()
+            applyTopDownStartPose()
 
             isTopDownActive = true
             syncTopDownClipPlane()
@@ -916,6 +900,37 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             applyStairOrGroundHeight()
         }
         onTopDownStateChanged?()
+    }
+
+    /// Restore camera to the authored top-down start pose from nav.txt.
+    func resetTopDownView() {
+        guard isTopDownActive, hasTopDownCut, let cutHeight = savedTopDownCutHeight else { return }
+        topDownCutHeight = cutHeight
+        applyTopDownStartPose()
+        syncTopDownClipPlane()
+        topDownStatus = String(
+            format: "Top Down reset · roof %.2f m",
+            topDownCutHeight
+        )
+        onTopDownStateChanged?()
+    }
+
+    private func applyTopDownStartPose() {
+        if let ortho = savedTopDownOrthoHalfExtent, ortho > 0 {
+            topDownOrthoHalfExtent = ortho
+        } else if let zout = savedTopDownOrthoZoomOut, zout > 0 {
+            topDownOrthoHalfExtent = zout
+        }
+
+        if let yaw = savedTopDownYaw { cameraYaw = yaw }
+        if let pitch = savedTopDownPitch { cameraPitch = pitch }
+        if let center = savedTopDownCenter {
+            cameraPosition = center
+        } else {
+            cameraPitch = -Constants.cameraPitchLimit
+            setHeightAlongUp(topDownCutHeight + topDownHoverDistance(for: topDownOrthoHalfExtent))
+        }
+        clampTopDownZoomToLimits()
     }
 
     /// Zoom in / out along navigation up (buttons). Zoom in toward cut; zoom out to nav max.
@@ -1016,7 +1031,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             apiBaseURL: apiBaseURL,
             world: world,
             camera: lastPhotoSearchCamera ?? cameraPosition,
-            viewDirection: lastPhotoSearchViewDirection,
             maxResults: photoSearchMaxResults,
             isFetchMore: true
         )
@@ -1179,21 +1193,20 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         onPointClickStateChanged?()
 
         let camera = cameraPosition
-        // PlayCanvas: normalize(clickedPoint − cameraPosition)
-        let toClick = world - camera
-        let viewDirection: SIMD3<Float>? = {
+        // PlayCanvas: view direction is computed in the same frame as the sent
+        // point inside PhotoSearchClient (normalize(sendPoint − camera)).
+        lastPhotoSearchCamera = camera
+        lastPhotoSearchViewDirection = {
+            let toClick = world - camera
             let len = simd_length(toClick)
             guard len > 1e-6 else { return nil }
             return toClick / len
         }()
-        lastPhotoSearchCamera = camera
-        lastPhotoSearchViewDirection = viewDirection
 
         runPhotoSearch(
             apiBaseURL: apiBaseURL,
             world: world,
             camera: camera,
-            viewDirection: viewDirection,
             maxResults: photoSearchMaxResults,
             isFetchMore: false
         )
@@ -1203,7 +1216,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         apiBaseURL: URL,
         world: SIMD3<Float>,
         camera: SIMD3<Float>,
-        viewDirection: SIMD3<Float>?,
         maxResults: Int,
         isFetchMore: Bool
     ) {
@@ -1216,7 +1228,6 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
                     baseURL: apiBaseURL,
                     displayWorldPoint: world,
                     cameraPosition: camera,
-                    viewDirection: viewDirection,
                     maxResults: maxResults,
                     useSPZCoordinates: useSPZ,
                     useServerCalibration: useCalibration

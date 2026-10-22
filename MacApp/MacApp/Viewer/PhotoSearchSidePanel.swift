@@ -22,8 +22,6 @@ struct PhotoSearchSidePanel: View {
     @State private var selectedIDs: Set<Int> = []
     @State private var fullscreenIndex: Int? = nil
     @State private var pdfExportError: String?
-    @State private var sharePDFURL: URL?
-    @State private var isSharePresented = false
 
     private var pageStep: Int { PhotoSearchAPI.defaultMaxResults }
 
@@ -148,13 +146,6 @@ struct PhotoSearchSidePanel: View {
             }
         }
 #endif
-#if os(iOS) || os(visionOS)
-        .sheet(isPresented: $isSharePresented) {
-            if let sharePDFURL {
-                PhotoShareSheet(items: [sharePDFURL])
-            }
-        }
-#endif
     }
 
     @ViewBuilder
@@ -261,13 +252,55 @@ struct PhotoSearchSidePanel: View {
                 try data.write(to: dest, options: .atomic)
             }
 #else
-            sharePDFURL = url
-            isSharePresented = true
+            // Present UIKit share sheet directly — SwiftUI `.sheet` + UIActivityViewController
+            // shows a blank stuck modal on iPad/iPhone.
+            presentIOSShareSheet(for: url)
 #endif
         } catch {
             pdfExportError = error.localizedDescription
         }
     }
+
+#if os(iOS) || os(visionOS)
+    @MainActor
+    private func presentIOSShareSheet(for fileURL: URL) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: \.isKeyWindow)
+                ?? scene.windows.first,
+              var presenter = window.rootViewController else {
+            pdfExportError = "Couldn't open the share sheet."
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+
+        let activity = UIActivityViewController(
+            activityItems: [fileURL],
+            applicationActivities: nil
+        )
+        activity.completionWithItemsHandler = { _, _, _, error in
+            if let error {
+                Task { @MainActor in
+                    pdfExportError = error.localizedDescription
+                }
+            }
+        }
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.midY,
+                width: 1,
+                height: 1
+            )
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(activity, animated: true)
+    }
+#endif
 
 #if os(macOS)
     private func photoImage(_ photo: PhotoSearchResult) -> Image {
@@ -598,17 +631,5 @@ private struct PhotoPannellumWebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {
         uiView.loadHTMLString(html, baseURL: URL(string: "https://cdnjs.cloudflare.com/"))
     }
-}
-#endif
-
-#if os(iOS) || os(visionOS)
-private struct PhotoShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 #endif

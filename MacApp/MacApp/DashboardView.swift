@@ -195,17 +195,16 @@ struct DashboardView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
-                    Menu {
-                        Button("Sign Out", role: .destructive) {
-                            Task { await authManager.signOut() }
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            selectedTab = .settings
                         }
                     } label: {
                         Text("View Profile")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(.white.opacity(0.38))
                     }
-                    .menuStyle(.automatic)
-                    .fixedSize()
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 22)
@@ -252,6 +251,11 @@ struct DashboardView: View {
                 .disabled(projectLibrary.isLoading)
 
                 Menu {
+                    Button("Settings") {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            selectedTab = .settings
+                        }
+                    }
                     Button("Sign Out", role: .destructive) {
                         Task { await authManager.signOut() }
                     }
@@ -419,20 +423,7 @@ struct DashboardView: View {
     }
 
     private var settingsPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Settings")
-                .font(.system(size: 40, weight: .ultraLight))
-                .foregroundStyle(.white)
-
-            Text("Account preferences will live here.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.42))
-
-            Spacer()
-        }
-        .padding(.horizontal, 36)
-        .padding(.top, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        SettingsView()
     }
 
     private var searchSheet: some View {

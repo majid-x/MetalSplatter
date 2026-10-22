@@ -1,0 +1,24 @@
+# Source photos: 2220 7680x3840 panoramas, far too large for git
+images/
+masks/
+
+# COLMAP reconstruction (images.bin and points3D.bin are ~200 MB each)
+colmap/
+sparse/
+
+# Gaussian splat / training artifacts
+*.ply
+outputs/
+photo_results/
+
+# Generated at runtime
+calibration.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store

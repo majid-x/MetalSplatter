@@ -85,6 +85,7 @@ private struct AuthView: View {
     @State private var formError: String?
     @State private var infoMessage: String?
     @State private var ambientPhase: CGFloat = 0
+    @State private var showPasswordReset = false
     @FocusState private var focusedField: AuthFieldFocus?
 
     private var trimmedName: String {
@@ -264,6 +265,16 @@ private struct AuthView: View {
                     .disabled(isSubmitting)
                     .padding(.top, 4)
 
+                    if mode == .signIn {
+                        Button("Forgot password?") {
+                            showPasswordReset = true
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.top, 4)
+                    }
+
                     HStack(spacing: 6) {
                         Text(mode.footerPrompt)
                             .foregroundStyle(.white.opacity(0.38))
@@ -291,6 +302,10 @@ private struct AuthView: View {
         }
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.25), value: mode)
+        .sheet(isPresented: $showPasswordReset) {
+            PasswordResetView(initialEmail: trimmedEmail, isPresentedAsSheet: true)
+                .environment(authManager)
+        }
         .onAppear {
             withAnimation(.easeInOut(duration: 14).repeatForever(autoreverses: true)) {
                 ambientPhase = 1

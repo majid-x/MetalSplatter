@@ -1,0 +1,11 @@
+spz-swift
+=========
+
+This software is a Swift port of the spz library by Niantic Labs.
+
+Original C++ implementation:
+  Repository: https://github.com/nianticlabs/spz
+  Copyright: (c) 2024 Niantic Labs
+  License: MIT
+
+Swift port by Sean Cier, 2026.

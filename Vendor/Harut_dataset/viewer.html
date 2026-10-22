@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Point Cloud Viewer</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#111; color:#ddd; font-family:system-ui,sans-serif; display:flex; height:100vh; overflow:hidden; }
+#canvas-wrap { flex:1; position:relative; }
+canvas { display:block; width:100%; height:100%; }
+#side { width:340px; background:#1a1a1a; display:flex; flex-direction:column; border-left:1px solid #333; }
+#panel-header { padding:12px 14px; background:#222; border-bottom:1px solid #333; }
+#panel-header h3 { font-size:13px; font-weight:600; color:#eee; }
+#status  { color:#aaa; font-size:11px; margin-top:4px; }
+#coords  { font-size:11px; color:#7af; margin-top:4px; font-family:monospace; min-height:14px; }
+#photos  { flex:1; overflow-y:auto; padding:8px; }
+.photo-card { margin-bottom:10px; background:#222; border-radius:6px; overflow:hidden; cursor:pointer; }
+.photo-card:hover { outline:1px solid #7af; }
+.photo-card img { width:100%; display:block; }
+.photo-label { padding:4px 8px; font-size:10px; color:#888; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#loading { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+           background:rgba(0,0,0,.8); padding:20px 32px; border-radius:8px;
+           font-size:14px; color:#7af; text-align:center; pointer-events:none; }
+#hint { position:absolute; bottom:12px; left:12px; font-size:11px; color:#444; pointer-events:none; }
+#controls { position:absolute; top:10px; left:10px; display:flex; gap:6px; flex-direction:column; }
+.ctrl-btn { background:#222; border:1px solid #444; color:#ccc; padding:5px 10px;
+            font-size:11px; border-radius:4px; cursor:pointer; }
+.ctrl-btn:hover { background:#333; }
+#step-wrap { position:absolute; top:10px; right:10px; background:#222; border:1px solid #444;
+             border-radius:4px; padding:5px 8px; font-size:11px; color:#aaa; display:flex; align-items:center; gap:6px; }
+#step-wrap select { background:#111; color:#ccc; border:none; font-size:11px; }
+
+/* 360 panorama modal */
+#pano-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:1000; }
+#pano-container { position:absolute; inset:0; }
+#pano-close { position:absolute; top:14px; right:16px; z-index:1002;
+              background:#222; border:1px solid #555; color:#eee; padding:7px 13px;
+              font-size:13px; border-radius:5px; cursor:pointer; }
+#pano-close:hover { background:#333; }
+#pano-title { position:absolute; top:14px; left:16px; z-index:1002; color:#ccc;
+              font-family:monospace; font-size:12px; background:rgba(0,0,0,.5);
+              padding:6px 10px; border-radius:5px; }
+#pano-hint { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:1002;
+             color:#888; font-size:11px; background:rgba(0,0,0,.5); padding:5px 10px; border-radius:5px; }
+/* marker for the clicked point inside the panorama */
+.pt-hotspot { width:28px; height:28px; margin:-14px 0 0 -14px; border:3px solid #4fdc82;
+              border-radius:50%; box-shadow:0 0 0 2px rgba(0,0,0,.7), 0 0 12px #4fdc82; }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css">
+</head>
+<body>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <div id="loading">Loading point cloud…</div>
+  <div id="hint">Left-drag: rotate &nbsp;|&nbsp; Scroll: zoom &nbsp;|&nbsp; Right-drag: pan &nbsp;|&nbsp; Arrows: orbit &nbsp;|&nbsp; Shift+arrows: pan &nbsp;|&nbsp; Click: query photos</div>
+  <div id="controls">
+    <button class="ctrl-btn" onclick="resetCamera()">Reset view</button>
+    <button class="ctrl-btn" onclick="toggleAxes()">Toggle axes</button>
+  </div>
+  <div id="step-wrap">
+    Density:
+    <select id="step-sel" onchange="reloadPoints()">
+      <option value="10">low (1/10)</option>
+      <option value="5" selected>med (1/5)</option>
+      <option value="2">high (1/2)</option>
+      <option value="1">full</option>
+    </select>
+    &nbsp;|&nbsp; Max cam dist:
+    <select id="dist-sel">
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+      <option value="3">3</option>
+      <option value="5">5</option>
+      <option value="10">10</option>
+    </select>
+  </div>
+</div>
+<div id="side">
+  <div id="panel-header">
+    <h3>Photos at clicked point</h3>
+    <div id="status">Click a point in the cloud to query.</div>
+    <div id="coords"></div>
+  </div>
+  <div id="photos"></div>
+</div>
+
+<!-- 360 panorama modal -->
+<div id="pano-modal">
+  <div id="pano-container"></div>
+  <div id="pano-title"></div>
+  <button id="pano-close" onclick="closePano()">✕ Close</button>
+  <div id="pano-hint">Drag to look around · scroll to zoom · green ring = clicked point · Esc to close</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script>
+// ── globals ────────────────────────────────────────────────────────────────
+// Use same origin when served from the API (/viewer); file:// must hit localhost.
+const API = (location.protocol === "http:" || location.protocol === "https:")
+  ? location.origin
+  : "http://localhost:8001";
+let scene, camera, renderer, pointCloud, axesHelper;
+let isDragging=false, isRight=false, lastX=0, lastY=0;
+let pointerDown=null;
+const DRAG_PX=5;
+const keys={};
+let spherical = {theta:0.4, phi:1.1, r:5};
+let target = new THREE.Vector3(0,0,0);
+let cloudCenter = new THREE.Vector3();
+
+// ── init ───────────────────────────────────────────────────────────────────
+function init(){
+  const canvas = document.getElementById("c");
+  renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+  renderer.setPixelRatio(devicePixelRatio);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111111);
+
+  const w = canvas.parentElement.clientWidth;
+  const h = canvas.parentElement.clientHeight;
+  camera = new THREE.PerspectiveCamera(55, w/h, 0.001, 2000);
+
+  axesHelper = new THREE.AxesHelper(1);
+  scene.add(axesHelper);
+
+  onResize();
+  window.addEventListener("resize", onResize);
+
+  // mouse / touch events
+  canvas.addEventListener("mousedown",  onMouseDown);
+  canvas.addEventListener("mousemove",  onMouseMove);
+  canvas.addEventListener("mouseup",    onMouseUp);
+  canvas.addEventListener("mouseleave", onMouseUp);
+  canvas.addEventListener("contextmenu",e=>e.preventDefault());
+  canvas.addEventListener("wheel",      onWheel, {passive:false});
+  canvas.addEventListener("click",      onClick);
+
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup",   onKeyUp);
+
+  loadPoints();
+  animate();
+}
+
+function onResize(){
+  const w = renderer.domElement.parentElement.clientWidth;
+  const h = renderer.domElement.parentElement.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h;
+  camera.updateProjectionMatrix();
+}
+
+// ── point cloud ────────────────────────────────────────────────────────────
+async function loadPoints(){
+  const step = document.getElementById("step-sel").value;
+  document.getElementById("loading").style.display="block";
+  document.getElementById("loading").textContent="Fetching points…";
+  try {
+    const res  = await fetch(`${API}/points_lite?step=${step}`);
+    const data = await res.json();
+    buildCloud(data.points, data.colors);
+    document.getElementById("status").textContent =
+      `${data.count.toLocaleString()} points loaded (step=${step})`;
+  } catch(e){
+    document.getElementById("loading").textContent =
+      "Error: " + e.message + "\n(Can't reach " + API + " — start photo_api.py and open http://localhost:8001/viewer)";
+    return;
+  }
+  document.getElementById("loading").style.display="none";
+}
+
+function reloadPoints(){
+  if(pointCloud){ scene.remove(pointCloud); pointCloud.geometry.dispose(); pointCloud.material.dispose(); }
+  loadPoints();
+}
+
+function buildCloud(pts, cols){
+  // --- clip outliers: keep points within 3 MAD of median on each axis ---
+  const xs = pts.map(p=>p[0]).sort((a,b)=>a-b);
+  const ys = pts.map(p=>p[1]).sort((a,b)=>a-b);
+  const zs = pts.map(p=>p[2]).sort((a,b)=>a-b);
+  const med = a => a[Math.floor(a.length/2)];
+  const mx=med(xs), my=med(ys), mz=med(zs);
+  const madX = med(xs.map(v=>Math.abs(v-mx)).sort((a,b)=>a-b)) * 5;
+  const madY = med(ys.map(v=>Math.abs(v-my)).sort((a,b)=>a-b)) * 5;
+  const madZ = med(zs.map(v=>Math.abs(v-mz)).sort((a,b)=>a-b)) * 5;
+
+  const keep = [];
+  for(let i=0;i<pts.length;i++){
+    if(Math.abs(pts[i][0]-mx)<=madX && Math.abs(pts[i][1]-my)<=madY && Math.abs(pts[i][2]-mz)<=madZ)
+      keep.push(i);
+  }
+
+  const n   = keep.length;
+  const pos = new Float32Array(n*3);
+  const col = new Float32Array(n*3);
+  let minX=Infinity,maxX=-Infinity, minY=Infinity,maxY=-Infinity, minZ=Infinity,maxZ=-Infinity;
+
+  for(let k=0;k<n;k++){
+    const i=keep[k];
+    pos[k*3]=pts[i][0]; pos[k*3+1]=pts[i][1]; pos[k*3+2]=pts[i][2];
+    if(pts[i][0]<minX)minX=pts[i][0]; if(pts[i][0]>maxX)maxX=pts[i][0];
+    if(pts[i][1]<minY)minY=pts[i][1]; if(pts[i][1]>maxY)maxY=pts[i][1];
+    if(pts[i][2]<minZ)minZ=pts[i][2]; if(pts[i][2]>maxZ)maxZ=pts[i][2];
+    if(cols){
+      col[k*3]=cols[i][0]/255; col[k*3+1]=cols[i][1]/255; col[k*3+2]=cols[i][2]/255;
+    } else {
+      col[k*3]=0.6; col[k*3+1]=0.7; col[k*3+2]=0.9;
+    }
+  }
+
+  cloudCenter.set((minX+maxX)/2,(minY+maxY)/2,(minZ+maxZ)/2);
+  const span = Math.max(maxX-minX,maxY-minY,maxZ-minZ);
+  spherical.r = span * 1.4;
+  target.copy(cloudCenter);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos,3));
+  geo.setAttribute("color",    new THREE.BufferAttribute(col,3));
+
+  // fixed 2px points — no world-space size scaling
+  const mat = new THREE.PointsMaterial({size:2, vertexColors:true, sizeAttenuation:false});
+  if(pointCloud){ scene.remove(pointCloud); pointCloud.geometry.dispose(); pointCloud.material.dispose(); }
+  pointCloud = new THREE.Points(geo, mat);
+  pointCloud.rotation.x = Math.PI;
+  scene.add(pointCloud);
+
+  axesHelper.scale.setScalar(span * 0.1);
+  document.getElementById("status").textContent += `  (${n.toLocaleString()} after outlier filter)`;
+  updateCamera();
+}
+
+// ── camera ─────────────────────────────────────────────────────────────────
+function updateCamera(){
+  const x = target.x + spherical.r * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+  const y = target.y + spherical.r * Math.cos(spherical.phi);
+  const z = target.z + spherical.r * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+  camera.position.set(x,y,z);
+  camera.lookAt(target);
+}
+
+function resetCamera(){ if(pointCloud){ spherical.theta=0.4; spherical.phi=1.1; target.copy(cloudCenter); updateCamera(); } }
+function toggleAxes(){ axesHelper.visible=!axesHelper.visible; }
+
+// ── mouse ──────────────────────────────────────────────────────────────────
+function onMouseDown(e){
+  isDragging=true; isRight=(e.button===2);
+  lastX=e.clientX; lastY=e.clientY;
+  pointerDown={x:e.clientX, y:e.clientY};
+}
+
+function onMouseUp(){
+  isDragging=false;
+}
+
+function onMouseMove(e){
+  if(!isDragging) return;
+  const dx=e.clientX-lastX, dy=e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  if(isRight){
+    // pan
+    const speed = spherical.r * 0.001;
+    const right = new THREE.Vector3();
+    const up    = new THREE.Vector3();
+    camera.getWorldDirection(new THREE.Vector3());
+    right.crossVectors(camera.getWorldDirection(new THREE.Vector3()), camera.up).normalize();
+    up.copy(camera.up).normalize();
+    target.addScaledVector(right, -dx*speed);
+    target.addScaledVector(up,     dy*speed);
+  } else {
+    spherical.theta -= dx * 0.005;
+    spherical.phi    = Math.max(0.05, Math.min(Math.PI-0.05, spherical.phi - dy*0.005));
+  }
+  updateCamera();
+}
+
+function onWheel(e){
+  e.preventDefault();
+  spherical.r *= 1 + e.deltaY * 0.001;
+  spherical.r  = Math.max(0.01, spherical.r);
+  updateCamera();
+}
+
+function onKeyDown(e){
+  if(e.key==="Shift"){ keys.Shift=true; return; }
+  if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) return;
+  e.preventDefault();
+  keys.Shift=e.shiftKey;
+  keys[e.key]=true;
+}
+
+function onKeyUp(e){
+  if(e.key==="Shift"){ keys.Shift=false; return; }
+  keys[e.key]=false;
+}
+
+function handleKeyboard(){
+  const orbit=0.03, pan=spherical.r*0.012;
+  let moved=false;
+
+  if(keys.ArrowLeft || keys.ArrowRight || keys.ArrowUp || keys.ArrowDown){
+    const shift=keys.Shift;
+    if(shift){
+      const right=new THREE.Vector3();
+      const fwd=new THREE.Vector3();
+      camera.getWorldDirection(fwd);
+      fwd.y=0;
+      if(fwd.lengthSq()>1e-8) fwd.normalize();
+      else fwd.set(0,0,-1);
+      right.crossVectors(fwd, camera.up).normalize();
+      if(keys.ArrowLeft)  { target.addScaledVector(right, -pan); moved=true; }
+      if(keys.ArrowRight) { target.addScaledVector(right,  pan); moved=true; }
+      if(keys.ArrowUp)    { target.addScaledVector(fwd,   pan); moved=true; }
+      if(keys.ArrowDown)  { target.addScaledVector(fwd,  -pan); moved=true; }
+    } else {
+      if(keys.ArrowLeft)  { spherical.theta += orbit; moved=true; }
+      if(keys.ArrowRight) { spherical.theta -= orbit; moved=true; }
+      if(keys.ArrowUp)    { spherical.phi = Math.max(0.05, spherical.phi - orbit); moved=true; }
+      if(keys.ArrowDown)  { spherical.phi = Math.min(Math.PI-0.05, spherical.phi + orbit); moved=true; }
+    }
+  }
+
+  if(moved) updateCamera();
+}
+
+function pickThreshold(){
+  const dist=camera.position.distanceTo(target);
+  const vFOV=camera.fov * Math.PI / 180;
+  const px=12;
+  const h=renderer.domElement.clientHeight || 1;
+  return Math.max(px * 2 * Math.tan(vFOV/2) * dist / h, spherical.r * 0.008);
+}
+
+// ── click → query ──────────────────────────────────────────────────────────
+async function onClick(e){
+  if(!pointCloud) return;
+  if(pointerDown){
+    const dx=e.clientX-pointerDown.x, dy=e.clientY-pointerDown.y;
+    if(dx*dx+dy*dy > DRAG_PX*DRAG_PX) return;
+  }
+
+  const rect   = renderer.domElement.getBoundingClientRect();
+  const ndc    = new THREE.Vector2(
+    ((e.clientX-rect.left)/rect.width)*2-1,
+   -((e.clientY-rect.top)/rect.height)*2+1
+  );
+  const ray    = new THREE.Raycaster();
+  ray.params.Points.threshold = pickThreshold();
+  ray.setFromCamera(ndc, camera);
+  const hits = ray.intersectObject(pointCloud);
+  if(!hits.length) return;
+
+  const p = hits[0].point;
+  // undo the visual X-flip (rotation.x = PI negates Y and Z)
+  const cx = p.x, cy = -p.y, cz = -p.z;
+  document.getElementById("coords").textContent =
+    `COLMAP: ${cx.toFixed(4)}, ${cy.toFixed(4)}, ${cz.toFixed(4)}`;
+  document.getElementById("status").textContent = "Querying…";
+  document.getElementById("photos").innerHTML   = "";
+
+  try {
+    const maxDist = parseFloat(document.getElementById("dist-sel").value);
+    const res  = await fetch(`${API}/query`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({x:cx, y:cy, z:cz, max_results:6, include_images:true, max_dist_to_cam:maxDist, add_marker:true})
+    });
+    const data = await res.json();
+    document.getElementById("status").textContent =
+      `${data.visible_count} cameras see this point`;
+    renderPhotos(data.results);
+  } catch(e){
+    document.getElementById("status").textContent = "Query failed: " + e.message;
+  }
+}
+
+function renderPhotos(results){
+  const el = document.getElementById("photos");
+  el.innerHTML = "";
+  if(!results.length){ el.innerHTML="<p style='color:#666;padding:12px;font-size:12px'>No cameras found for this point.</p>"; return; }
+  results.forEach(r=>{
+    const card = document.createElement("div");
+    card.className = "photo-card";
+    if(r.image_b64){
+      const img = document.createElement("img");
+      img.src = "data:image/jpeg;base64," + r.image_b64;
+      card.appendChild(img);
+    }
+    const lbl = document.createElement("div");
+    lbl.className = "photo-label";
+    const dist = (r.camera_distance!=null) ? `  dist=${r.camera_distance}` : "";
+    const tag  = r.is_360 ? "  · 360°" : "";
+    lbl.textContent = `cam${r.image_id}${dist}${tag}`;
+    card.appendChild(lbl);
+    card.title = r.is_360 ? "Open 360° panorama at this point" : "Open full image";
+    card.addEventListener("click", ()=>openPano(r));
+    el.appendChild(card);
+  });
+}
+
+// ── 360 panorama viewer ──────────────────────────────────────────────────────
+let panoViewer = null;
+function openPano(r){
+  const modal = document.getElementById("pano-modal");
+  const cont  = document.getElementById("pano-container");
+  document.getElementById("pano-title").textContent =
+    `${r.filename || ("cam"+r.image_id)}   yaw=${(r.pano_yaw||0).toFixed(1)}°  pitch=${(r.pano_pitch||0).toFixed(1)}°`;
+  modal.style.display = "block";
+  if(panoViewer){ panoViewer.destroy(); panoViewer = null; }
+  cont.innerHTML = "";
+  const url = API + (r.image_url || `/raw_image/${r.image_id}`);
+
+  if(r.is_360 && window.pannellum){
+    panoViewer = pannellum.viewer("pano-container", {
+      type: "equirectangular",
+      panorama: url,
+      autoLoad: true,
+      showControls: true,
+      yaw:   r.pano_yaw   || 0,
+      pitch: r.pano_pitch || 0,
+      hfov: 100,
+      hotSpots: [{
+        yaw:   r.pano_yaw   || 0,
+        pitch: r.pano_pitch || 0,
+        cssClass: "pt-hotspot",
+        createTooltipFunc: function(hs){ hs.classList.add("pt-hotspot"); }
+      }]
+    });
+  } else {
+    // Non-360 (pinhole) image: just show it full-screen.
+    const img = document.createElement("img");
+    img.src = url;
+    img.style.cssText = "position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;";
+    cont.appendChild(img);
+  }
+}
+function closePano(){
+  document.getElementById("pano-modal").style.display = "none";
+  if(panoViewer){ panoViewer.destroy(); panoViewer = null; }
+  document.getElementById("pano-container").innerHTML = "";
+}
+window.addEventListener("keydown", e=>{ if(e.key==="Escape") closePano(); });
+
+// ── loop ───────────────────────────────────────────────────────────────────
+function animate(){
+  requestAnimationFrame(animate);
+  handleKeyboard();
+  renderer.render(scene,camera);
+}
+
+init();
+</script>
+</body>
+</html>

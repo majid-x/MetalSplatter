@@ -13,7 +13,13 @@ enum PhotoSearchAPI {
         SIMD3(-direction.x, -direction.y, direction.z)
     }
 
+    /// Matches PlayCanvas `SplatClickQuery` attribute defaults.
     static let defaultMaxResults = 6
+    static let defaultCenterThreshold = 0.3
+    static let defaultMaxViewAngle = 55.0
+    static let viewFilterEnabledByDefault = true
+    static let defaultAddMarker = false
+    static let defaultOffset = 0
 }
 
 struct PhotoSearchResult: Identifiable, Sendable, Hashable {
@@ -35,14 +41,19 @@ struct PhotoSearchResponse: Sendable {
 }
 
 struct PhotoSearchClient: Sendable {
+    /// Mirrors PlayCanvas `SplatClickQuery._callAPI` payload.
     struct QueryRequest: Encodable {
         var x: Double
         var y: Double
         var z: Double
-        var max_results: Int = PhotoSearchAPI.defaultMaxResults
-        var include_images: Bool = true
+        var max_results: Int
+        var center_threshold: Double
+        var include_images: Bool
+        var add_marker: Bool
+        var offset: Int
         var camera_position: [Double]?
         var view_direction: [Double]?
+        var max_view_angle: Double?
     }
 
     private struct QueryResponse: Decodable {
@@ -91,22 +102,25 @@ struct PhotoSearchClient: Sendable {
         baseURL: URL,
         displayWorldPoint: SIMD3<Float>,
         cameraPosition: SIMD3<Float>? = nil,
-        /// Direction from camera toward the clicked point (PlayCanvas semantics).
-        viewDirection: SIMD3<Float>? = nil,
         maxResults: Int = PhotoSearchAPI.defaultMaxResults,
         /// Inverted vs original: off = send display as-is; on = apply 180° Z undo.
         useSPZCoordinates: Bool = false,
         /// PlayCanvas `useServerCalibration`: always send raw display coords.
-        useServerCalibration: Bool = false
+        useServerCalibration: Bool = false,
+        /// PlayCanvas `viewFilterEnabled` (default true).
+        viewFilterEnabled: Bool = PhotoSearchAPI.viewFilterEnabledByDefault,
+        /// PlayCanvas `centerThreshold` (default 0.3).
+        centerThreshold: Double = PhotoSearchAPI.defaultCenterThreshold,
+        /// PlayCanvas `maxViewAngle` degrees (default 55).
+        maxViewAngle: Double = PhotoSearchAPI.defaultMaxViewAngle,
+        /// PlayCanvas Ctrl+P marker overlay (default off).
+        addMarker: Bool = PhotoSearchAPI.defaultAddMarker
     ) async throws -> PhotoSearchResponse {
-        // Inverted SPZ: off → raw display; on → PLY axis undo.
-        // Server calibration always sends raw (PlayCanvas useServerCalibration).
-        let sendRaw = !useSPZCoordinates || useServerCalibration
+        // PlayCanvas: useRaw = useServerCalibration → raw world.
+        // Mac SPZ path: when not using server calibration and SPZ is on, undo 180° Z.
+        let sendRaw = useServerCalibration || !useSPZCoordinates
         let toAPIPoint: (SIMD3<Float>) -> SIMD3<Float> = { point in
             sendRaw ? point : PhotoSearchAPI.apiPoint(fromDisplayWorld: point)
-        }
-        let toAPIDirection: (SIMD3<Float>) -> SIMD3<Float> = { direction in
-            sendRaw ? direction : PhotoSearchAPI.apiDirection(fromDisplayWorld: direction)
         }
 
         let point = toAPIPoint(displayWorldPoint)
@@ -119,25 +133,31 @@ struct PhotoSearchClient: Sendable {
         request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         request.timeoutInterval = 60
 
+        // PlayCanvas payload keys (exact).
         var body = QueryRequest(
             x: Double(point.x),
             y: Double(point.y),
             z: Double(point.z),
             max_results: maxResults,
-            include_images: true
+            center_threshold: centerThreshold,
+            include_images: true,
+            add_marker: addMarker,
+            offset: PhotoSearchAPI.defaultOffset
         )
 
-        if let viewDirection {
-            let dir = toAPIDirection(viewDirection)
-            let len = simd_length(dir)
-            if len > 1e-6 {
-                let n = dir / len
-                body.view_direction = [Double(n.x), Double(n.y), Double(n.z)]
-            }
-        }
-        if let cameraPosition {
+        // PlayCanvas: view filter attaches view_direction + max_view_angle, and
+        // camera_position when available. Direction is computed in the SAME frame
+        // as the sent point: normalize(sendPoint − camera).
+        if viewFilterEnabled, let cameraPosition {
             let cam = toAPIPoint(cameraPosition)
-            body.camera_position = [Double(cam.x), Double(cam.y), Double(cam.z)]
+            let delta = point - cam
+            let len = simd_length(delta)
+            if len > 1e-6 {
+                let n = delta / len
+                body.view_direction = [Double(n.x), Double(n.y), Double(n.z)]
+                body.max_view_angle = maxViewAngle
+                body.camera_position = [Double(cam.x), Double(cam.y), Double(cam.z)]
+            }
         }
 
         request.httpBody = try JSONEncoder().encode(body)
@@ -155,7 +175,8 @@ struct PhotoSearchClient: Sendable {
             throw ClientError.decoding
         }
 
-        let items = decoded.results ?? decoded.images ?? []
+        // PlayCanvas `_showResults`: prefer `data.images` only; keep `results` as fallback.
+        let items = decoded.images ?? decoded.results ?? []
         let photos: [PhotoSearchResult] = items.enumerated().compactMap { index, item in
             guard let imageData = Self.decodeImageData(from: item) else { return nil }
             let id = item.image_id ?? item.rank ?? index
@@ -174,6 +195,7 @@ struct PhotoSearchClient: Sendable {
         }
 
         guard !photos.isEmpty else { throw ClientError.noImages }
+        // Keep API order — PlayCanvas does not client-side re-rank.
         return PhotoSearchResponse(photos: photos, hasMore: decoded.has_more ?? false)
     }
 

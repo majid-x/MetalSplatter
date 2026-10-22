@@ -113,6 +113,11 @@ enum ProjectDownloadStore {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    /// Wipes every locally cached project package (used on account deletion).
+    static func removeAllCachedPackages() {
+        removeOrphanedCaches(keeping: [])
+    }
+
     /// UUID folder names under PrivateProjects that currently exist on disk.
     static func cachedProjectIDs() -> [UUID] {
         guard let root = try? rootDirectory else { return [] }

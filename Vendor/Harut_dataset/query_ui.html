@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Point Photo Lookup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Libre+Franklin:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #121410;
+      --bg1: #1c2018;
+      --ink: #e8e4d9;
+      --muted: #9a9588;
+      --line: rgba(232, 228, 217, 0.12);
+      --accent: #c4a35a;
+      --accent-dim: rgba(196, 163, 90, 0.18);
+      --danger: #d96b4c;
+      --ok: #7ea36a;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      font-family: "Libre Franklin", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(196, 163, 90, 0.12), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(90, 120, 80, 0.1), transparent 50%),
+        linear-gradient(160deg, var(--bg0), var(--bg1) 55%, #161812);
+      background-attachment: fixed;
+    }
+
+    .wrap {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 2.5rem 0 4rem;
+    }
+
+    header {
+      margin-bottom: 2rem;
+      animation: rise 0.55s ease both;
+    }
+
+    header h1 {
+      font-size: clamp(1.75rem, 4vw, 2.4rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+
+    header p {
+      margin-top: 0.55rem;
+      color: var(--muted);
+      max-width: 36rem;
+      line-height: 1.5;
+      font-size: 0.98rem;
+    }
+
+    form.search {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: end;
+      padding: 1.1rem 1.15rem;
+      border: 1px solid var(--line);
+      background: rgba(18, 20, 16, 0.55);
+      backdrop-filter: blur(10px);
+      border-radius: var(--radius);
+      animation: rise 0.65s ease 0.05s both;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-width: 10rem;
+      flex: 1 1 12rem;
+    }
+
+    .field.narrow { flex: 0 1 7rem; min-width: 6rem; }
+
+    label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input {
+      width: 100%;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, 0.35);
+      color: var(--ink);
+      font: 500 1rem/1.2 "IBM Plex Mono", monospace;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    button {
+      font: 600 0.95rem/1 "Libre Franklin", sans-serif;
+      padding: 0.78rem 1.35rem;
+      border: 0;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #1a160c;
+      cursor: pointer;
+      transition: transform 0.12s ease, filter 0.12s ease, opacity 0.12s;
+    }
+
+    button:hover { filter: brightness(1.06); transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.55; cursor: wait; transform: none; }
+
+    .meta {
+      margin-top: 1.25rem;
+      min-height: 1.4rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+      animation: rise 0.7s ease 0.08s both;
+    }
+
+    .meta strong { color: var(--ink); font-weight: 600; }
+    .meta.error { color: var(--danger); }
+    .meta.loading { color: var(--accent); }
+
+    .grid {
+      margin-top: 1.5rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+
+    .shot {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: #0a0b09;
+      cursor: zoom-in;
+      opacity: 0;
+      transform: translateY(10px);
+      animation: rise 0.45s ease forwards;
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      transition: transform 0.35s ease;
+    }
+
+    .shot:hover img { transform: scale(1.03); }
+
+    .shot figcaption {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      padding: 1.6rem 0.7rem 0.55rem;
+      background: linear-gradient(transparent, rgba(8, 9, 7, 0.92));
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.68rem;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .shot figcaption span {
+      display: block;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+
+    .empty {
+      margin-top: 3rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: rgba(6, 7, 5, 0.88);
+      backdrop-filter: blur(6px);
+      cursor: zoom-out;
+    }
+
+    .lightbox.open { display: flex; }
+
+    .lightbox img {
+      max-width: min(96vw, 1400px);
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 4px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+      animation: fade 0.25s ease;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fade {
+      from { opacity: 0; transform: scale(0.98); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    @media (max-width: 560px) {
+      form.search { flex-direction: column; align-items: stretch; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Point Photo Lookup</h1>
+      <p>Enter a COLMAP point id to load the photos that see that sparse point.</p>
+    </header>
+
+    <form class="search" id="form">
+      <div class="field">
+        <label for="pointId">Point ID</label>
+        <input id="pointId" name="pointId" type="number" inputmode="numeric" placeholder="e.g. 14205" required autofocus />
+      </div>
+      <div class="field narrow">
+        <label for="maxResults">Max results (0 = all)</label>
+        <input id="maxResults" name="maxResults" type="number" min="0" max="50" value="8" />
+      </div>
+      <button type="submit" id="submit">Look up</button>
+    </form>
+
+    <div class="meta" id="meta"></div>
+    <div class="grid" id="grid"></div>
+    <p class="empty" id="empty">Results will appear here.</p>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
+    <img id="lightboxImg" alt="Full size preview" />
+  </div>
+
+  <script>
+    const form = document.getElementById("form");
+    const submitBtn = document.getElementById("submit");
+    const meta = document.getElementById("meta");
+    const grid = document.getElementById("grid");
+    const empty = document.getElementById("empty");
+    const lightbox = document.getElementById("lightbox");
+    const lightboxImg = document.getElementById("lightboxImg");
+
+    function setMeta(text, cls) {
+      meta.className = "meta" + (cls ? " " + cls : "");
+      meta.textContent = text;
+    }
+
+    function openLightbox(src, alt) {
+      lightboxImg.src = src;
+      lightboxImg.alt = alt || "Photo";
+      lightbox.classList.add("open");
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove("open");
+      lightboxImg.removeAttribute("src");
+    }
+
+    lightbox.addEventListener("click", closeLightbox);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeLightbox();
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pointId = Number(document.getElementById("pointId").value);
+      const maxRaw = document.getElementById("maxResults").value;
+      const maxResults = maxRaw === "" ? 8 : Number(maxRaw);
+
+      if (!Number.isFinite(pointId)) {
+        setMeta("Enter a valid point id.", "error");
+        return;
+      }
+      if (!Number.isFinite(maxResults) || maxResults < 0) {
+        setMeta("Max results must be 0 (all) or a positive number.", "error");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      grid.innerHTML = "";
+      empty.style.display = "none";
+      setMeta("Loading images…", "loading");
+
+      try {
+        const url = `/query/point/${encodeURIComponent(pointId)}?max_results=${maxResults}&include_images=true`;
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const detail = data.detail || res.statusText || "Request failed";
+          setMeta(typeof detail === "string" ? detail : JSON.stringify(detail), "error");
+          empty.style.display = "block";
+          empty.textContent = "No images to show.";
+          return;
+        }
+
+        const xyz = (data.snapped_xyz || []).join(", ");
+        setMeta(
+          `Point ${data.point_id} · ${data.returned} shown of ${data.total_visible} visible` +
+          (xyz ? ` · xyz [${xyz}]` : "")
+        );
+
+        const images = data.images || [];
+        if (!images.length) {
+          empty.style.display = "block";
+          empty.textContent = "This point has no matching images.";
+          return;
+        }
+
+        images.forEach((img, i) => {
+          const fig = document.createElement("figure");
+          fig.className = "shot";
+          fig.style.animationDelay = `${0.04 * i}s`;
+
+          if (img.error || !img.data_url) {
+            fig.innerHTML = `<figcaption>${img.filename || img.colmap_name || "Image"}<span>${img.error || "No preview"}</span></figcaption>`;
+          } else {
+            const image = document.createElement("img");
+            image.src = img.data_url;
+            image.alt = img.filename || img.colmap_name || `Image ${i + 1}`;
+            image.loading = "lazy";
+
+            const cap = document.createElement("figcaption");
+            cap.innerHTML = `${img.filename || img.colmap_name}<span>rank ${img.rank} · dist ${img.camera_distance}</span>`;
+
+            fig.appendChild(image);
+            fig.appendChild(cap);
+            fig.addEventListener("click", () => openLightbox(img.data_url, image.alt));
+          }
+
+          grid.appendChild(fig);
+        });
+      } catch (err) {
+        setMeta(err.message || "Network error", "error");
+        empty.style.display = "block";
+        empty.textContent = "Could not reach the API.";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    const params = new URLSearchParams(location.search);
+    if (params.has("point_id")) {
+      document.getElementById("pointId").value = params.get("point_id");
+      if (params.has("max_results")) {
+        document.getElementById("maxResults").value = params.get("max_results");
+      }
+      form.requestSubmit();
+    }
+  </script>
+</body>
+</html>

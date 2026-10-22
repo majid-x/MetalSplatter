@@ -100,7 +100,8 @@ final class ProductSearchClient {
         components.queryItems = [
             URLQueryItem(name: "engine", value: "google_lens"),
             URLQueryItem(name: "url", value: imageURL.absoluteString),
-            URLQueryItem(name: "search_type", value: "products"),
+            // Google Lens no longer returns products for an image alone.
+            URLQueryItem(name: "search_type", value: "visual_matches"),
         ]
         guard let apiURL = components.url else {
             throw ProductSearchError.searchFailed("Invalid SearchAPI URL")
