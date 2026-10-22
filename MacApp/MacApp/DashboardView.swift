@@ -2,6 +2,7 @@ import SwiftUI
 
 private enum DashboardTab: String, CaseIterable, Identifiable {
     case projects = "Projects"
+    case booking = "Booking"
     case settings = "Settings"
 
     var id: String { rawValue }
@@ -9,6 +10,7 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .projects: return "scope"
+        case .booking: return "calendar.badge.plus"
         case .settings: return "gearshape"
         }
     }
@@ -225,6 +227,31 @@ struct DashboardView: View {
                     .help("Local storage used by downloaded projects")
 
                 Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        selectedTab = .booking
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Book a scan")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background {
+                        Capsule()
+                            .fill(.white.opacity(0.10))
+                            .overlay {
+                                Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                            }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Schedule an on-site Vroomk scan")
+
+                Button {
                     isSearchPresented = true
                 } label: {
                     Image(systemName: "magnifyingglass")
@@ -251,6 +278,11 @@ struct DashboardView: View {
                 .disabled(projectLibrary.isLoading)
 
                 Menu {
+                    Button("Book a scan") {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            selectedTab = .booking
+                        }
+                    }
                     Button("Settings") {
                         withAnimation(.easeOut(duration: 0.2)) {
                             selectedTab = .settings
@@ -273,6 +305,8 @@ struct DashboardView: View {
             switch selectedTab {
             case .projects:
                 projectsPane
+            case .booking:
+                BookingView()
             case .settings:
                 settingsPane
             }
