@@ -71,7 +71,7 @@ struct BookingCoverageAside: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white)
             }
-            Text("\(BookingGeo.advanceDisplay) advance · \(Int(BookingGeo.radiusMiles)) mi coverage")
+            Text("\(BookingGeo.advanceDisplay) deposit · \(Int(BookingGeo.radiusMiles)) mi coverage")
                 .font(.system(size: 12))
                 .foregroundStyle(.white.opacity(0.45))
         }

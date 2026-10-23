@@ -159,7 +159,7 @@ struct BookingView: View {
                 .font(.system(size: 40, weight: .ultraLight))
                 .foregroundStyle(.white)
 
-            Text("Schedule an on-site Vroomk scan. \(BookingGeo.rateDisplay) · \(BookingGeo.advanceDisplay) advance inside coverage.")
+            Text("Schedule an on-site Vroomk scan. \(BookingGeo.rateDisplay) · \(BookingGeo.advanceDisplay) deposit inside coverage.")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.white.opacity(0.42))
         }
@@ -263,8 +263,8 @@ struct BookingView: View {
                             if let coverage {
                                 Text(
                                     coverage.inCoverage
-                                        ? "Inside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · \(BookingGeo.advanceDisplay) advance required"
-                                        : "Outside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · no advance; earliest date is tomorrow"
+                                        ? "Inside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · \(BookingGeo.advanceDisplay) deposit"
+                                        : "Outside coverage · \(String(format: "%.1f", coverage.distanceMiles)) mi · no deposit; earliest date is tomorrow"
                                 )
                                 .font(.system(size: 13))
                                 .foregroundStyle(.white.opacity(0.45))
@@ -391,11 +391,11 @@ struct BookingView: View {
                 field(title: "Phone", text: $phone, prompt: "+1 …")
 
                 if coverage?.inCoverage == true {
-                    Text("Next you'll pay a \(BookingGeo.advanceDisplay) advance to confirm.")
+                    Text("Next you'll pay a \(BookingGeo.advanceDisplay) deposit to confirm the on-site visit.")
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.45))
                 } else {
-                    Text("Outside coverage — no advance. We'll confirm your request.")
+                    Text("Outside coverage — no deposit. We'll confirm your request.")
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.45))
                 }
@@ -404,7 +404,10 @@ struct BookingView: View {
     }
 
     private var paymentStep: some View {
-        card(title: "Payment", subtitle: "\(BookingGeo.advanceDisplay) booking advance (card).") {
+        card(
+            title: "Deposit",
+            subtitle: "\(BookingGeo.advanceDisplay) for your on-site scan appointment."
+        ) {
             Group {
                 if let secret = paymentClientSecret {
                     BookingPaymentWebView(

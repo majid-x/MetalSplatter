@@ -4,8 +4,6 @@
 <dict>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Vroomk uses your location to check scan coverage for booking.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>
