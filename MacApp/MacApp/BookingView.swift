@@ -80,9 +80,18 @@ struct BookingView: View {
     @State private var isLoadingSlots = false
     @State private var errorMessage: String?
     @State private var geocodeTask: Task<Void, Never>?
+    @State private var draftSaveTask: Task<Void, Never>?
+    @State private var serverDraftId: String? = BookingDraftSession.serverId
     @State private var locationProvider = BookingLocationProvider()
 
     private var isCompact: Bool { sizeClass == .compact }
+
+    /// Email used as draft upsert key (contact field, else signed-in account).
+    private var draftEmailKey: String? {
+        let fromForm = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !fromForm.isEmpty { return fromForm }
+        return authManager.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 
     private var availableTimes: [String] {
         BookingSlots.allTimes24h.filter { !bookedTimes.contains($0) }
@@ -135,12 +144,32 @@ struct BookingView: View {
             .frame(maxWidth: 720, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear(perform: hydrateContact)
+        .onAppear {
+            _ = BookingDraftSession.localId
+            serverDraftId = BookingDraftSession.serverId
+            hydrateContact()
+        }
         .onChange(of: addressQuery) { _, newValue in
             scheduleGeocode(for: newValue)
         }
         .onChange(of: selectedDate) { _, _ in
             Task { await loadBookedTimes() }
+            scheduleDraftSave()
+        }
+        .onChange(of: selectedTime24) { _, _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: scanScope) { _, _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: name) { _, _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: email) { _, _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: phone) { _, _ in
+            scheduleDraftSave()
         }
         .onChange(of: coverage?.inCoverage) { _, inCoverage in
             guard let inCoverage else { return }
@@ -533,13 +562,17 @@ struct BookingView: View {
         errorMessage = nil
         switch step {
         case .location:
+            await persistDraftNow()
             step = .scan
         case .scan:
+            await persistDraftNow()
             step = .schedule
             await loadBookedTimes()
         case .schedule:
+            await persistDraftNow()
             step = .contact
         case .contact:
+            await persistDraftNow()
             await submitContact()
         default:
             break
@@ -560,6 +593,7 @@ struct BookingView: View {
                 )
                 paymentIntentId = intent.paymentIntentId
                 paymentClientSecret = intent.clientSecret
+                await persistDraftNow(paymentStatus: "pending")
                 step = .payment
             } catch {
                 errorMessage = error.localizedDescription
@@ -577,6 +611,7 @@ struct BookingView: View {
                     advancePaid: false
                 )
             )
+            await persistDraftNow(paymentStatus: "pending")
             calendarLink = response.link
             step = .done
         } catch {
@@ -593,6 +628,8 @@ struct BookingView: View {
 
         do {
             _ = try await BookingAPIClient.confirmPayment(paymentIntentId: piId)
+            // Payment succeeded → update draft payment_status, then confirm booking.
+            await persistDraftNow(paymentStatus: "paid")
             let response = try await BookingAPIClient.scheduleMeeting(
                 makeScheduleBody(
                     place: place,
@@ -659,6 +696,8 @@ struct BookingView: View {
         if selectedDate < minDate {
             selectedDate = minDate
         }
+        // First DB insert / update happens when a location is chosen.
+        scheduleDraftSave(immediate: true)
     }
 
     private func clearSelectedLocation() {
@@ -669,6 +708,7 @@ struct BookingView: View {
         locationGate = .idle
         errorMessage = nil
         selectedDate = BookingSlots.minSelectableDate(inCoverage: true)
+        scheduleDraftSave(immediate: true)
     }
 
     private func scheduleGeocode(for query: String) {
@@ -784,6 +824,9 @@ struct BookingView: View {
     }
 
     private func resetWizard() {
+        draftSaveTask?.cancel()
+        BookingDraftSession.startFresh()
+        serverDraftId = nil
         step = .location
         addressQuery = ""
         suggestions = []
@@ -799,6 +842,74 @@ struct BookingView: View {
         calendarLink = nil
         errorMessage = nil
         hydrateContact()
+    }
+
+    // MARK: - Draft persistence
+
+    private func scheduleDraftSave(immediate: Bool = false) {
+        draftSaveTask?.cancel()
+        draftSaveTask = Task {
+            if !immediate {
+                try? await Task.sleep(for: .milliseconds(1000))
+            }
+            guard !Task.isCancelled else { return }
+            await persistDraftNow()
+        }
+    }
+
+    @discardableResult
+    private func persistDraftNow(paymentStatus: String? = nil) async -> Bool {
+        // Need at least a location (or payment update) before writing.
+        let hasLocation = selectedPlace != nil
+        let markingPaid = paymentStatus == "paid"
+        guard hasLocation || markingPaid else { return false }
+
+        var body = BookingAPIClient.DraftBody()
+        body.id = serverDraftId ?? BookingDraftSession.localId
+        body.email = draftEmailKey
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty { body.name = trimmedName }
+
+        let trimmedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPhone.isEmpty { body.phone = trimmedPhone }
+
+        if let place = selectedPlace {
+            body.address = place.label
+            body.location = place.label
+            body.lat = place.lat
+            body.lng = place.lng
+        }
+        if let coverage {
+            body.inCoverage = coverage.inCoverage
+            body.distanceKm = coverage.distanceKm
+        }
+
+        body.scanScope = scanScope.rawValue
+        body.house_coverage = scanScope.rawValue
+
+        // Always resend date/time when known so upserts don't wipe them.
+        body.date = BookingSlots.pacificDateString(from: selectedDate)
+        if let selectedTime24 {
+            body.time = selectedTime24
+        }
+
+        body.payment_status = paymentStatus ?? "pending"
+        if let paymentIntentId {
+            body.paymentIntentId = paymentIntentId
+        }
+
+        do {
+            let response = try await BookingAPIClient.saveBookingDraft(body)
+            if let id = response.data?.first?.id {
+                serverDraftId = id
+                BookingDraftSession.serverId = id
+            }
+            return true
+        } catch {
+            // Draft saves are best-effort — don't block the wizard UI.
+            return false
+        }
     }
 
     // MARK: - UI helpers

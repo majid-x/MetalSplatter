@@ -129,6 +129,39 @@ enum BookingGeo {
     }
 }
 
+/// Local booking-wizard session id (WhatsApp flow: generate on enter, keep across steps).
+enum BookingDraftSession {
+    private static let localIdKey = "vroomk.booking.draft.localId"
+    private static let serverIdKey = "vroomk.booking.draft.serverId"
+
+    static var localId: String {
+        if let existing = UserDefaults.standard.string(forKey: localIdKey), !existing.isEmpty {
+            return existing
+        }
+        let fresh = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(fresh, forKey: localIdKey)
+        return fresh
+    }
+
+    static var serverId: String? {
+        get { UserDefaults.standard.string(forKey: serverIdKey) }
+        set {
+            if let newValue, !newValue.isEmpty {
+                UserDefaults.standard.set(newValue, forKey: serverIdKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: serverIdKey)
+            }
+        }
+    }
+
+    /// New local session (e.g. after a completed booking / “Book another”).
+    static func startFresh() {
+        let fresh = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(fresh, forKey: localIdKey)
+        UserDefaults.standard.removeObject(forKey: serverIdKey)
+    }
+}
+
 enum BookingSlots {
     static let pacific = TimeZone(identifier: "America/Los_Angeles")!
     static let allTimes24h = [

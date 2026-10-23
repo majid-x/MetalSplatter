@@ -77,6 +77,19 @@ struct ScheduleMeetingResponse: Decodable {
     let meetLink: String?
 }
 
+struct SaveBookingDraftResponse: Decodable {
+    let message: String?
+    let data: [BookingDraftRow]?
+}
+
+struct BookingDraftRow: Decodable {
+    let id: String
+    let email: String?
+    let name: String?
+    let date: String?
+    let time: String?
+}
+
 enum BookingAPIClient {
     private static let session = URLSession.shared
     private static let decoder: JSONDecoder = {
@@ -166,6 +179,33 @@ enum BookingAPIClient {
 
     static func scheduleMeeting(_ body: ScheduleBody) async throws -> ScheduleMeetingResponse {
         try await postJSON(path: "api/schedule-meeting", body: body)
+    }
+
+    // MARK: - Draft (progressive save / abandoned cart)
+
+    /// Upserts a draft on the website. Server keys rows primarily by `email` when present.
+    struct DraftBody: Encodable {
+        var id: String?
+        var email: String?
+        var name: String?
+        var phone: String?
+        var date: String?
+        var time: String?
+        var address: String?
+        var location: String?
+        var lat: Double?
+        var lng: Double?
+        var scanScope: String?
+        var house_coverage: String?
+        var inCoverage: Bool?
+        var distanceKm: Double?
+        var payment_status: String?
+        var paymentIntentId: String?
+    }
+
+    @discardableResult
+    static func saveBookingDraft(_ body: DraftBody) async throws -> SaveBookingDraftResponse {
+        try await postJSON(path: "api/save-booking-draft", body: body)
     }
 
     // MARK: - HTTP
