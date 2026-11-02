@@ -2,7 +2,11 @@ node_modules/
 out/
 dist/
 dist-electron/
+# electron-builder outputs (EXEs are >100MB — do not commit)
 release/
+release-*/
+*.exe
+*.blockmap
 .DS_Store
 *.log
 .env

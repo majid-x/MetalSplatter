@@ -437,8 +437,8 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
 
   function applyLookDeltaPixels(dx, dy) {
     if (inputBlocked || pickMode) return
-    // Mouse right → look right (same sign as macWalkNav / natural FPS yaw).
-    yaw += dx * lookSensitivity
+    // PlayCanvas-style drag look: drag left → camera turns right (grab / invert yaw).
+    yaw -= dx * lookSensitivity
     pitch -= dy * lookSensitivity
     pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch))
   }

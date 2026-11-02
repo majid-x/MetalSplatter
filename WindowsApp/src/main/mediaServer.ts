@@ -376,8 +376,7 @@ function vroomkViewerHtml(): string {
     let viewerHandle = null;
     let walker = null;
     let sceneNav = null;
-    let wantPointerLock = false;
-    /** LMB (walk) or RMB (tools) drag-look when pointer-lock is unavailable. */
+    /** PlayCanvas-style: LMB (walk) / RMB (tools) drag-look; cursor stays visible. */
     let dragLooking = false;
 
     // Mac-parity measure state (PlayCanvas SplatMeasurer / MetalKitSceneRenderer).
@@ -444,26 +443,6 @@ function vroomkViewerHtml(): string {
       return measureMode || pickMode === 'photos';
     }
 
-    function exitPointerLock() {
-      wantPointerLock = false;
-      try {
-        if (document.pointerLockElement) document.exitPointerLock();
-      } catch (_) {}
-    }
-
-    function requestWalkPointerLock() {
-      if (toolsNeedCursor() || !viewerHandle?.state?.loaded) return;
-      wantPointerLock = true;
-      const canvas = viewerHandle.app?.graphicsDevice?.canvas;
-      if (!canvas || document.pointerLockElement === canvas) return;
-      try {
-        const req = canvas.requestPointerLock();
-        if (req && typeof req.then === 'function') {
-          req.catch(() => { /* drag-look fallback still works */ });
-        }
-      } catch (_) {}
-    }
-
     function applyLookFromEvent(event) {
       if (!walker) return;
       const dx = event.movementX || 0;
@@ -476,8 +455,8 @@ function vroomkViewerHtml(): string {
     function syncToolVsWalk() {
       if (!viewerHandle?.state?.loaded) return;
       if (toolsNeedCursor()) {
-        exitPointerLock();
-        // Keep walk/look alive; only free the cursor for clicks (RMB-drag look).
+        dragLooking = false;
+        // Keep walk/look alive; LMB is for picks — RMB-drag look.
         if (walker) {
           walker.setPickMode(false);
           walker.setInputBlocked(false);
@@ -903,7 +882,7 @@ function vroomkViewerHtml(): string {
       if (!viewerHandle?.state?.loaded) return;
       // Don't steal the cursor while Measure / Search Image need clicks.
       if (toolsNeedCursor()) {
-        exitPointerLock();
+        dragLooking = false;
         return;
       }
       try {
@@ -919,8 +898,6 @@ function vroomkViewerHtml(): string {
         w.setInputBlocked(false);
         if (resetToSpawn) w.resetToStart();
         applyPoseToCamera(w.getPose());
-        // Click-to-lock; keep wanting lock so Esc → click re-enters.
-        wantPointerLock = true;
         kickWalkFrame();
       } catch (_) {}
     }
@@ -1006,17 +983,22 @@ function vroomkViewerHtml(): string {
         canvas.style.outline = 'none';
       } catch (_) {}
 
+      // PlayCanvas-style drag look — cursor stays visible (no pointer-lock).
+      try {
+        canvas.style.cursor = 'grab';
+      } catch (_) {}
+
       window.addEventListener('pointermove', (event) => {
-        if (!walker) return;
-        const locked = document.pointerLockElement === canvas;
-        if (locked || dragLooking) applyLookFromEvent(event);
+        if (!walker || !dragLooking) return;
+        applyLookFromEvent(event);
       }, true);
 
       window.addEventListener('pointerdown', (event) => {
         if (event.button === 2) {
-          // RMB drag-look (also while Measure / Photos own LMB clicks).
+          // RMB drag-look while Measure / Photos own LMB clicks.
           if (event.target === canvas || event.target === document.body) {
             dragLooking = true;
+            try { canvas.style.cursor = 'grabbing'; } catch (_) {}
             try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
             event.preventDefault();
           }
@@ -1044,24 +1026,25 @@ function vroomkViewerHtml(): string {
           });
           return;
         }
-        // Walk mode: LMB drag looks; also request pointer-lock for continuous look.
+        // Walk mode: click-drag to look (cursor visible).
         if (event.target === canvas || event.target === document.body) {
           dragLooking = true;
+          try { canvas.style.cursor = 'grabbing'; } catch (_) {}
           try { canvas.focus({ preventScroll: true }); } catch (_) { try { canvas.focus(); } catch (_) {} }
           try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
-          requestWalkPointerLock();
-          // Do not preventDefault before focus — that was dropping keyboard focus so arrows died.
           event.stopPropagation();
         }
       }, true);
       window.addEventListener('pointerup', (event) => {
         if (event.button === 0 || event.button === 2) {
           dragLooking = false;
+          try { canvas.style.cursor = 'grab'; } catch (_) {}
           try { canvas.releasePointerCapture(event.pointerId); } catch (_) {}
         }
       }, true);
       window.addEventListener('pointercancel', () => {
         dragLooking = false;
+        try { canvas.style.cursor = 'grab'; } catch (_) {}
       }, true);
       window.addEventListener('contextmenu', (event) => {
         if (event.target === canvas) event.preventDefault();
