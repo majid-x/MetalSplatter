@@ -1,0 +1,77 @@
+{
+  "name": "vroomk-windows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vroomk for Windows — Electron + React + SuperSplat viewer",
+  "author": "Vroomk",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "npm run build && electron-builder --win",
+    "dist:dir": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@playcanvas/supersplat-viewer": "^1.41.0",
+    "@supabase/supabase-js": "^2.118.0",
+    "extract-zip": "^2.0.1",
+    "leaflet": "^1.9.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/extract-zip": "^2.0.0",
+    "@types/leaflet": "^1.9.22",
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron": "^35.2.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.3"
+  },
+  "build": {
+    "appId": "com.vroomk.windows",
+    "productName": "Vroomk",
+    "copyright": "Copyright © Vroomk",
+    "directories": {
+      "output": "release-new",
+      "buildResources": "assets"
+    },
+    "files": [
+      "out/**/*",
+      "viewer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/logo2.png",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vroomk"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}
