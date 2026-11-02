@@ -428,7 +428,10 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
       position: [...position],
       target: add(position, scale(forward, 2)),
       forward,
+      // Camera local up (after pitch) — for debug / consumers that want the exact view basis.
       up: cameraUp(),
+      // Navigation / gravity up — PlayCanvas lookAt must use THIS or Z-up scenes roll.
+      navigationUp: [...basis.up],
       yaw,
       pitch,
       fov: 65,
