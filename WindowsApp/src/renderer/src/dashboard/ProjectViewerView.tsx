@@ -17,7 +17,8 @@ type Phase = 'downloading' | 'unpacking' | 'ready' | { failed: string }
 
 type ScreenshotPurpose = 'products' | 'save' | null
 
-const DEFAULT_HINT = 'Click to look · mouse looks around · WASD / arrows move · Esc releases cursor'
+const DEFAULT_HINT =
+  'Drag to look · WASD / arrows move · Shift sprint (2×) · Q/E up/down'
 
 function RailIcon({ name }: { name: 'measure' | 'products' | 'shot' | 'search' | 'topdown' }) {
   if (name === 'measure') {
@@ -91,6 +92,7 @@ export function ProjectViewerView({
   const openGenRef = useRef(0)
   const [screenshotPurpose, setScreenshotPurpose] = useState<ScreenshotPurpose>(null)
   const [toolHint, setToolHint] = useState(DEFAULT_HINT)
+  const [sprinting, setSprinting] = useState(false)
   const [measureStatus, setMeasureStatus] = useState('Measure off')
   const [measureDeleteMode, setMeasureDeleteMode] = useState(false)
   const measureCommandsRef = useRef<MeasureCommands | null>(null)
@@ -319,6 +321,7 @@ export function ProjectViewerView({
               measureCommandsRef={measureCommandsRef}
               onPick={onPick}
               onMeasureState={onMeasureState}
+              onSprintState={setSprinting}
               onViewerError={setViewerError}
             />
             {viewerError && (
@@ -456,7 +459,9 @@ export function ProjectViewerView({
               {activeTool === 'measure' || screenshotPurpose || activeTool === 'photos' ? (
                 <p className="viewer-tool-hint">{toolHint}</p>
               ) : (
-                <p className="viewer-tool-hint">{DEFAULT_HINT}</p>
+                <p className={`viewer-tool-hint${sprinting ? ' sprinting' : ''}`}>
+                  {sprinting ? '2× SPRINT · Shift held · release for normal walk' : DEFAULT_HINT}
+                </p>
               )}
             </div>
           </div>

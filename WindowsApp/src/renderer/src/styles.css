@@ -1389,6 +1389,12 @@ h1 {
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
 }
 
+.viewer-tool-hint.sprinting {
+  color: #7dffb2;
+  border-color: rgba(125, 255, 178, 0.45);
+  background: rgb(14, 28, 22);
+}
+
 .viewer-tool-status {
   font-family: Consolas, "Courier New", monospace;
 }

@@ -8,3 +8,9 @@ DerivedData/
 .build
 Package.resolved
 
+# Windows Electron build artifacts (too large for GitHub)
+WindowsApp/release/
+WindowsApp/release-*/
+WindowsApp/**/*.exe
+WindowsApp/**/*.blockmap
+

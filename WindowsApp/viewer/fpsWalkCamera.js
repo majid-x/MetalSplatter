@@ -448,8 +448,18 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
     else pressed.delete(code)
   }
 
+  function isSprinting() {
+    return pressed.has('ShiftLeft') || pressed.has('ShiftRight')
+  }
+
+  function currentMoveSpeed() {
+    // GTA-style: hold Shift to sprint at 2× walk speed.
+    return moveSpeed * (isSprinting() ? 2 : 1)
+  }
+
   function update(dt) {
     if (inputBlocked) return getPose()
+    const speed = currentMoveSpeed()
 
     if (topDown) {
       // Flat pan only (Top Down tool) — still no orbit.
@@ -463,7 +473,7 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
       if (pressed.has('KeyD') || pressed.has('ArrowRight')) move = add(move, right)
       if (pressed.has('KeyA') || pressed.has('ArrowLeft')) move = sub(move, right)
       if (len(move) > 1e-8) {
-        position = add(position, scale(norm(move), moveSpeed * dt))
+        position = add(position, scale(norm(move), speed * dt))
       }
       return getPose()
     }
@@ -490,11 +500,11 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
 
     let next = [...position]
     if (hasHorizontal) {
-      const step = scale(norm(move), moveSpeed * dt)
+      const step = scale(norm(move), speed * dt)
       next = add(position, step)
     }
     if (Math.abs(vertical) > 1e-8) {
-      next = add(next, scale(basis.up, vertical * moveSpeed * dt))
+      next = add(next, scale(basis.up, vertical * speed * dt))
       persistentFloorY = heightAlongUp(next)
     }
 
@@ -605,9 +615,21 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
     setLookSensitivity(s) {
       if (typeof s === 'number' && s > 0) lookSensitivity = s
     },
-    /** True while any walk/look key is held — host must keep requesting frames. */
+    /** True while any walk key is held — host must keep requesting frames. */
     hasMovementInput() {
-      return pressed.size > 0
+      for (const code of pressed) {
+        if (code !== 'ShiftLeft' && code !== 'ShiftRight') return true
+      }
+      return false
+    },
+    isSprinting,
+    /** Sprint HUD: Shift held while actually moving. */
+    isSprintMoving() {
+      if (!isSprinting()) return false
+      for (const code of pressed) {
+        if (code !== 'ShiftLeft' && code !== 'ShiftRight') return true
+      }
+      return false
     },
     resetToStart,
     setTopDown,

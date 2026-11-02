@@ -34,6 +34,7 @@ export function SuperSplatViewer({
   measureCommandsRef,
   onPick,
   onMeasureState,
+  onSprintState,
   onViewerError
 }: {
   packageInfo: OpenedPackage
@@ -46,6 +47,7 @@ export function SuperSplatViewer({
   measureCommandsRef?: MutableRefObject<MeasureCommands | null>
   onPick?: (event: ViewerPickEvent) => void
   onMeasureState?: (event: MeasureStateEvent) => void
+  onSprintState?: (sprinting: boolean) => void
   onViewerError?: (message: string | null) => void
 }) {
   const [src, setSrc] = useState<string | null>(null)
@@ -57,6 +59,8 @@ export function SuperSplatViewer({
   onErrorRef.current = onViewerError
   const onMeasureRef = useRef(onMeasureState)
   onMeasureRef.current = onMeasureState
+  const onSprintRef = useRef(onSprintState)
+  onSprintRef.current = onSprintState
 
   function postToViewer(payload: Record<string, unknown>) {
     iframeRef.current?.contentWindow?.postMessage({ source: 'vroomk', ...payload }, '*')
@@ -126,6 +130,10 @@ export function SuperSplatViewer({
           pointCount: typeof data.pointCount === 'number' ? data.pointCount : 0,
           mode: Boolean(data.mode)
         })
+        return
+      }
+      if (data.type === 'sprintState') {
+        onSprintRef.current?.(Boolean((data as { sprinting?: boolean }).sprinting))
         return
       }
       if (data.type === 'ready' || data.type === 'bridge-ready') {
@@ -223,7 +231,9 @@ export function SuperSplatViewer({
       'ArrowUp',
       'ArrowDown',
       'ArrowLeft',
-      'ArrowRight'
+      'ArrowRight',
+      'ShiftLeft',
+      'ShiftRight'
     ])
 
     function isTypingTarget(target: EventTarget | null): boolean {
@@ -243,7 +253,11 @@ export function SuperSplatViewer({
       if (isTypingTarget(event.target)) return
       // Always forward: in Electron, arrows often hit the host even when the iframe
       // "has focus". setKey is idempotent, so a duplicate from the iframe is fine.
-      postToViewer({ type: down ? 'keyDown' : 'keyUp', code: event.code })
+      postToViewer({
+        type: down ? 'keyDown' : 'keyUp',
+        code: event.code,
+        shiftKey: event.shiftKey
+      })
       event.preventDefault()
     }
 

@@ -368,16 +368,26 @@ function vroomkViewerHtml(): string {
 
     const banner = document.getElementById('pick-banner');
     const errorEl = document.getElementById('viewer-error');
-    // Created after the viewer so it stacks above the canvas.
+    // Created after the viewer so it stacks above the canvas / SuperSplat chrome.
     const overlay = document.createElement('div');
     overlay.id = 'measure-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden;';
+    const sprintHud = document.createElement('div');
+    sprintHud.id = 'sprint-hud';
+    sprintHud.textContent = '2× SPRINT';
+    sprintHud.style.cssText =
+      'display:none;position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:10001;' +
+      'padding:10px 18px;border-radius:999px;background:rgba(12,18,16,0.94);color:#7dffb2;' +
+      'font:700 14px/1.2 Segoe UI,sans-serif;letter-spacing:0.06em;' +
+      'border:1px solid rgba(125,255,178,0.55);pointer-events:none;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,0.55);';
     let pickMode = null; // 'photos' only — measure runs its own mode
     let viewerHandle = null;
     let walker = null;
     let sceneNav = null;
     /** PlayCanvas-style: LMB (walk) / RMB (tools) drag-look; cursor stays visible. */
     let dragLooking = false;
+    let lastSprintHud = false;
 
     // Mac-parity measure state (PlayCanvas SplatMeasurer / MetalKitSceneRenderer).
     let measureMode = false;
@@ -491,6 +501,32 @@ function vroomkViewerHtml(): string {
       if (!walker) return;
       walker.setKey(code, down);
       if (down) kickWalkFrame();
+      syncSprintHud();
+    }
+
+    function syncShiftModifier(shiftKey) {
+      if (!walker) return;
+      // Keep sprint in sync even when Shift keydown was swallowed by the host/iframe.
+      walker.setKey('ShiftLeft', !!shiftKey);
+      if (!shiftKey) walker.setKey('ShiftRight', false);
+      syncSprintHud();
+    }
+
+    function syncSprintHud() {
+      if (!sprintHud || !walker) {
+        if (sprintHud) sprintHud.style.display = 'none';
+        return;
+      }
+      const on =
+        typeof walker.isSprintMoving === 'function'
+          ? walker.isSprintMoving()
+          : (walker.isSprinting?.() && walker.hasMovementInput?.());
+      sprintHud.style.display = on ? 'block' : 'none';
+      if (on !== lastSprintHud) {
+        lastSprintHud = on;
+        post({ type: 'sprintState', sprinting: on });
+      }
+      if (on) kickWalkFrame();
     }
 
     function setPickMode(mode) {
@@ -860,6 +896,10 @@ function vroomkViewerHtml(): string {
       // Host Electron window forwards WASD/arrows when the iframe lacks focus.
       if ((data.type === 'keyDown' || data.type === 'keyUp') && typeof data.code === 'string') {
         setWalkKey(data.code, data.type === 'keyDown');
+        if (typeof data.shiftKey === 'boolean') syncShiftModifier(data.shiftKey);
+        else if (data.code === 'ShiftLeft' || data.code === 'ShiftRight') {
+          syncShiftModifier(data.type === 'keyDown');
+        }
       }
     });
 
@@ -920,6 +960,7 @@ function vroomkViewerHtml(): string {
       sceneNav = await window.sse.sceneNav;
       viewerHandle = await createViewer({ container: document.body, settings, ...options });
       document.body.appendChild(overlay);
+      document.body.appendChild(sprintHud);
       post({ type: 'ready' });
 
       const enterMacWalk = (reset) => {
@@ -937,7 +978,8 @@ function vroomkViewerHtml(): string {
 
       const WALK_KEYS = new Set([
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
-        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
+        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+        'ShiftLeft', 'ShiftRight'
       ]);
 
       // WASD / Q/E / arrows → fps walker. Block SuperSplat "1"/F orbit + frame shortcuts.
@@ -955,16 +997,24 @@ function vroomkViewerHtml(): string {
         if (!walker) return;
         if (WALK_KEYS.has(event.code)) {
           setWalkKey(event.code, true);
+          syncShiftModifier(event.shiftKey);
           event.preventDefault();
           event.stopPropagation();
+        } else if (event.shiftKey && event.key === 'Shift') {
+          syncShiftModifier(true);
+          event.preventDefault();
         }
       }
       function onWalkKeyUp(event) {
         if (!walker) return;
         if (WALK_KEYS.has(event.code)) {
           setWalkKey(event.code, false);
+          syncShiftModifier(event.shiftKey);
           event.preventDefault();
           event.stopPropagation();
+        } else if (event.key === 'Shift') {
+          syncShiftModifier(false);
+          event.preventDefault();
         }
       }
       window.addEventListener('keydown', onWalkKeyDown, true);
@@ -1087,6 +1137,9 @@ function vroomkViewerHtml(): string {
         if (walker && viewerHandle?.state?.loaded) {
           applyPoseToCamera(walker.update(Math.min(0.05, Math.max(0, dt))));
           if (walker.hasMovementInput()) kickWalkFrame();
+          syncSprintHud();
+        } else if (sprintHud) {
+          sprintHud.style.display = 'none';
         }
         if (measureMode) drawMeasureOverlay();
       });
