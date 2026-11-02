@@ -54,19 +54,21 @@ function asVec3(v, fallback) {
   return fallback
 }
 
+/** Match Mac `applyOrientation` — keep authored up; do not rebuild it from right×forward. */
 function createBasis(orientation) {
   let up = asVec3(orientation?.up, [0, 1, 0])
   let forward = asVec3(orientation?.forward, [0, 0, -1])
   up = norm(up)
   forward = norm(sub(forward, scale(up, dot(forward, up))))
   if (len(forward) < 0.5) {
-    const fb = Math.abs(dot(up, [0, 0, -1])) < 0.9 ? [0, 0, -1] : [1, 0, 0]
-    forward = norm(sub(fb, scale(up, dot(fb, up))))
+    forward = Math.abs(up[1]) < 0.9 ? [0, 0, -1] : [-1, 0, 0]
+    forward = norm(sub(forward, scale(up, dot(forward, up))))
   }
   let right = norm(cross(forward, up))
-  if (len(right) < 0.5) right = norm(cross([0, 0, -1], up))
-  up = norm(cross(right, forward))
-  forward = norm(cross(up, right))
+  if (len(right) < 0.5) {
+    const alt = Math.abs(up[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+    right = norm(cross(forward, alt))
+  }
   return { up, forward, right, usesCustomOrientation: Boolean(orientation) }
 }
 
@@ -415,26 +417,32 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
     return len(r) > 1e-4 ? norm(r) : basis.right
   }
 
+  /** Mac `cameraUp` = normalize(cross(cameraRight, cameraForward)). */
+  function cameraUp() {
+    return norm(cross(cameraRight(), cameraForward()))
+  }
+
   function getPose() {
     const forward = cameraForward()
     return {
       position: [...position],
       target: add(position, scale(forward, 2)),
       forward,
-      up: [...basis.up],
+      up: cameraUp(),
       yaw,
       pitch,
       fov: 65,
       topDown,
-      hasTopDownCut: topDownCutHeight != null
+      hasTopDownCut: topDownCutHeight != null,
+      hasCustomOrientation: basis.usesCustomOrientation
     }
   }
 
   function applyLookDeltaPixels(dx, dy) {
     if (inputBlocked || pickMode) return
-    // PlayCanvas-style drag look: drag left → camera turns right (grab / invert yaw).
+    // Grab-style look: drag left → turn right; drag down → look up (both inverted).
     yaw -= dx * lookSensitivity
-    pitch -= dy * lookSensitivity
+    pitch += dy * lookSensitivity
     pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch))
   }
 

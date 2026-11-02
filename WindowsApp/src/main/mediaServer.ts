@@ -62,20 +62,21 @@ function contentUrlFor(filePath: string): string {
 
 function buildSettingsJson(options: ViewerLaunchOptions): string {
   const template = JSON.parse(readFileSync(settingsTemplatePath(), 'utf8')) as Record<string, unknown>
-  if (options.camera) {
-    template.cameras = [
-      {
-        initial: {
-          position: options.camera.position,
-          target: options.camera.target,
-          fov: options.camera.fov
-        }
-      }
-    ]
-  } else {
-    // Empty cameras → SuperSplat frames the splat AABB (template camera often points at empty space).
-    template.cameras = []
+  // Mac default when no nav camera: (0, 0, 1.54) looking down -Z — never empty→frameScene blob.
+  const camera = options.camera ?? {
+    position: [0, 0, 1.54] as [number, number, number],
+    target: [0, 0, -0.46] as [number, number, number],
+    fov: 65
   }
+  template.cameras = [
+    {
+      initial: {
+        position: camera.position,
+        target: camera.target,
+        fov: camera.fov
+      }
+    }
+  ]
   // Room-scale captures are environments, not orbit-around-object subjects.
   template.startMode = 'default'
   return JSON.stringify(template)
@@ -483,6 +484,7 @@ function vroomkViewerHtml(): string {
       const e = camera.entity;
       const p = pose.position;
       const t = pose.target;
+      // Mac-style derived camera up (from look) — prevents roll while walking.
       const up = pose.up || [0, 1, 0];
       e.setPosition(p[0], p[1], p[2]);
       e.lookAt(t[0], t[1], t[2], up[0], up[1], up[2]);
@@ -491,6 +493,29 @@ function vroomkViewerHtml(): string {
       }
       // SuperSplat is on-demand after load — must request a frame or WASD never ticks.
       viewerHandle.app.renderNextFrame = true;
+    }
+
+    function hasNavStart() {
+      return !!(sceneNav && Array.isArray(sceneNav.startPosition) && sceneNav.startPosition.length >= 3);
+    }
+
+    /** Mac Constants: camera at (0, cameraGroundY=0, cameraStartZ=1.54), look -Z.
+     * Do NOT apply Metal's rot180Z here — SuperSplat already loads PLYs upright;
+     * that flip was what made this scene appear inverted. */
+    function macDefaultStartNav() {
+      return {
+        startPosition: [0, 0, 1.54],
+        yawDegrees: 0,
+        pitchDegrees: 0,
+        orientationUp: null,
+        orientationForward: null,
+        moveSpeed: null,
+        measureScale: null,
+        topDownCutHeight: null,
+        collisionLayers: [],
+        collisionBlocks: [],
+        stairPolygons: []
+      };
     }
 
     function kickWalkFrame() {
@@ -910,8 +935,10 @@ function vroomkViewerHtml(): string {
           : typeof window.sse.moveSpeed === 'number' && window.sse.moveSpeed > 0
             ? window.sse.moveSpeed
             : DEFAULT_WALK_SPEED;
+      // Raw PLY with no nav.txt → Mac default eye pose, not SuperSplat frameScene blob.
+      const navForWalk = hasNavStart() ? sceneNav : macDefaultStartNav();
       if (!walker) {
-        walker = createFpsWalkCamera(sceneNav, { moveSpeed: speed });
+        walker = createFpsWalkCamera(navForWalk, { moveSpeed: speed });
       } else {
         walker.setMoveSpeed(speed);
       }
