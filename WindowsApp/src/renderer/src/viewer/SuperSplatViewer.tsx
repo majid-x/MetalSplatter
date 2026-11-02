@@ -29,7 +29,7 @@ export function SuperSplatViewer({
   measureMode = false,
   measureDeleteMode = false,
   measureFactor = 1,
-  /** Supabase / nav move_speed when set; FPS default 0.6. */
+  /** Supabase move_speed when set; Mac default 3.5 (nav move_speed ignored). */
   moveSpeed = null,
   measureCommandsRef,
   onPick,
@@ -72,12 +72,8 @@ export function SuperSplatViewer({
     setError(null)
     onErrorRef.current?.(null)
 
-    const speed =
-      (typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : null) ??
-      (typeof packageInfo.moveSpeed === 'number' && packageInfo.moveSpeed > 0
-        ? packageInfo.moveSpeed
-        : null) ??
-      0.6
+    // Mac: Supabase move_speed only; nil → Constants.cameraMoveSpeed (3.5). Nav ignored.
+    const speed = typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : 3.5
 
     void window.avgs.viewer
       .buildUrl({
@@ -148,11 +144,7 @@ export function SuperSplatViewer({
         // Enter FPS walk at nav spawn — never frameScene (orbit/top-down overview).
         postToViewer({
           type: 'setMacWalk',
-          moveSpeed:
-            (typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : null) ??
-            (typeof packageInfo.moveSpeed === 'number' && packageInfo.moveSpeed > 0
-              ? packageInfo.moveSpeed
-              : 0.6)
+          moveSpeed: typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : 3.5
         })
         return
       }
@@ -174,7 +166,7 @@ export function SuperSplatViewer({
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [pickMode, measureMode, measureDeleteMode, measureFactor, moveSpeed, packageInfo.moveSpeed])
+  }, [pickMode, measureMode, measureDeleteMode, measureFactor, moveSpeed])
 
   useEffect(() => {
     postToViewer({ type: 'setMeasureFactor', factor: measureFactor })
