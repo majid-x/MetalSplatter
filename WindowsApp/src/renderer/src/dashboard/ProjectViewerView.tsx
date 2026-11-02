@@ -314,9 +314,8 @@ export function ProjectViewerView({
               pickMode={pickMode}
               measureMode={activeTool === 'measure'}
               measureDeleteMode={measureDeleteMode}
-              measureFactor={
-                project.measureFactor * (opened.measureScale && opened.measureScale > 0 ? opened.measureScale : 1)
-              }
+              // Mac: DB measur_factor → distances only. nav measure_scale → overlay size (viewer).
+              measureFactor={project.measureFactor}
               moveSpeed={project.moveSpeed}
               measureCommandsRef={measureCommandsRef}
               onPick={onPick}

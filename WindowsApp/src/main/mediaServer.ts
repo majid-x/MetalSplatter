@@ -402,7 +402,10 @@ function vroomkViewerHtml(): string {
     // Mac-parity measure state (PlayCanvas SplatMeasurer / MetalKitSceneRenderer).
     let measureMode = false;
     let measureDeleteMode = false;
+    // Supabase measur_factor — distance readout only (Mac measureCalibrationFactor).
     let measureFactor = 1;
+    // nav.txt measure_scale — pin / laser / reticle size only (Mac measureOverlayScale).
+    let measureOverlayScale = 1;
     let measureExact = false;
     let measureNodes = []; // { position, screen:{x,y}, isStartOfChain, distanceToPrevious }
     let measureHover = null;
@@ -961,7 +964,7 @@ function vroomkViewerHtml(): string {
         let idx = measureDeleteHoverIndex;
         if (idx == null) {
           let best = null;
-          let bestD = 28;
+          let bestD = 28 * measureOverlayScale;
           for (let i = 0; i < measureNodes.length; i++) {
             const s = measureNodes[i].screen;
             if (!s) continue;
@@ -1011,6 +1014,16 @@ function vroomkViewerHtml(): string {
       return projected;
     }
 
+    function clampMeasureOverlayScale(value) {
+      if (!(typeof value === 'number') || !(value > 0)) return 1;
+      return Math.min(2, Math.max(0.05, value));
+    }
+
+    function applyMeasureOverlayScaleFromNav(nav) {
+      const raw = nav && typeof nav.measureScale === 'number' ? nav.measureScale : null;
+      measureOverlayScale = clampMeasureOverlayScale(raw != null && raw > 0 ? raw : 1);
+    }
+
     function pinHtml(s, color, size) {
       return (
         '<div style="position:absolute;left:' + s.x + 'px;top:' + s.y +
@@ -1035,6 +1048,12 @@ function vroomkViewerHtml(): string {
       let html = '';
 
       if (measureMode) {
+        const oscale = measureOverlayScale;
+        const strokeW = Math.max(1, 2.5 * oscale);
+        const pinSize = Math.max(6, 12 * oscale);
+        const pinActive = Math.max(8, 16 * oscale);
+        const hoverOuter = Math.max(10, 20 * oscale);
+        const hoverInner = Math.max(3, 6 * oscale);
         for (let i = 1; i < measureNodes.length; i++) {
           const node = measureNodes[i];
           if (node.isStartOfChain) continue;
@@ -1048,7 +1067,7 @@ function vroomkViewerHtml(): string {
             '<svg width="100%" height="100%" style="overflow:visible">' +
             '<line x1="' + (a.x - Math.min(a.x, b.x)) + '" y1="' + (a.y - Math.min(a.y, b.y)) +
             '" x2="' + (b.x - Math.min(a.x, b.x)) + '" y2="' + (b.y - Math.min(a.y, b.y)) +
-            '" stroke="rgba(50,230,255,0.95)" stroke-width="2.5" />' +
+            '" stroke="rgba(50,230,255,0.95)" stroke-width="' + strokeW + '" />' +
             '</svg></div>';
           if (node.distanceToPrevious != null) {
             const mx = (a.x + b.x) / 2;
@@ -1066,17 +1085,19 @@ function vroomkViewerHtml(): string {
           const s = screenOf(app, measureNodes[i]);
           if (!s) continue;
           const active = measureDeleteMode && measureDeleteHoverIndex === i;
-          html += pinHtml(s, active ? 'rgb(255,90,90)' : 'rgb(40,220,255)', active ? 16 : 12);
+          html += pinHtml(s, active ? 'rgb(255,90,90)' : 'rgb(40,220,255)', active ? pinActive : pinSize);
         }
 
         if (measureHoverScreen) {
           const h = measureHoverScreen;
           html +=
             '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
-            'px;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;' +
+            'px;width:' + hoverOuter + 'px;height:' + hoverOuter + 'px;margin:-' + (hoverOuter / 2) +
+            'px 0 0 -' + (hoverOuter / 2) + 'px;border-radius:50%;' +
             'border:2px solid rgba(50,230,255,0.55);pointer-events:none;"></div>' +
             '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
-            'px;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;' +
+            'px;width:' + hoverInner + 'px;height:' + hoverInner + 'px;margin:-' + (hoverInner / 2) +
+            'px 0 0 -' + (hoverInner / 2) + 'px;border-radius:50%;' +
             'background:rgba(50,230,255,0.95);pointer-events:none;"></div>';
           const prev = measureNodes[measureNodes.length - 1];
           if (prev && prev.isStartOfChain && !measureDeleteMode) {
@@ -1088,7 +1109,8 @@ function vroomkViewerHtml(): string {
                 'px;pointer-events:none;"><svg width="100%" height="100%" style="overflow:visible">' +
                 '<line x1="' + (a.x - Math.min(a.x, h.x)) + '" y1="' + (a.y - Math.min(a.y, h.y)) +
                 '" x2="' + (h.x - Math.min(a.x, h.x)) + '" y2="' + (h.y - Math.min(a.y, h.y)) +
-                '" stroke="rgba(50,230,255,0.4)" stroke-width="2" stroke-dasharray="4 4" /></svg></div>';
+                '" stroke="rgba(50,230,255,0.4)" stroke-width="' + Math.max(1, 2 * oscale) +
+                '" stroke-dasharray="4 4" /></svg></div>';
             }
           }
         }
@@ -1288,6 +1310,7 @@ function vroomkViewerHtml(): string {
     try {
       const { options, settings } = window.sse;
       sceneNav = await window.sse.sceneNav;
+      applyMeasureOverlayScaleFromNav(sceneNav);
       viewerHandle = await createViewer({ container: document.body, settings, ...options });
       document.body.appendChild(overlay);
       document.body.appendChild(sprintHud);
@@ -1459,7 +1482,7 @@ function vroomkViewerHtml(): string {
         measureHoverScreen = { x: event.clientX, y: event.clientY };
         if (measureDeleteMode) {
           let best = null;
-          let bestD = 28;
+          let bestD = 28 * measureOverlayScale;
           for (let i = 0; i < measureNodes.length; i++) {
             const s = measureNodes[i].screen;
             if (!s) continue;
