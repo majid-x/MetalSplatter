@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { searchPhotos, type PhotoSearchResult } from '../lib/photoSearch'
 import { searchProductsFromImage, type ProductSearchMatch } from '../lib/productSearch'
 import { formatMeasureDistance } from '../lib/formatMeasureDistance'
@@ -81,7 +81,10 @@ export function ViewerToolsPanel({
   const [photoStatus, setPhotoStatus] = useState('Click a surface to find photos.')
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoHasMore, setPhotoHasMore] = useState(false)
-  const [photoOffset, setPhotoOffset] = useState(0)
+  /** SplatClickQuery: grows max_results on Fetch More (6 → 12 → 18 …), offset stays 0. */
+  const [photoMaxResults, setPhotoMaxResults] = useState(6)
+  const PHOTO_PAGE_SIZE = 6
+  const photoSearchGenRef = useRef(0)
 
   const [products, setProducts] = useState<ProductSearchMatch[]>([])
   const [productStatus, setProductStatus] = useState('Drag a rectangle over the view to search')
@@ -97,7 +100,7 @@ export function ViewerToolsPanel({
     if (lastPick.mode === 'photos') {
       setPoint(lastPick.point)
       setCamera(lastPick.camera)
-      void runPhotoSearch(lastPick.point, lastPick.camera, 0, false)
+      void runPhotoSearch(lastPick.point, lastPick.camera, false)
       // Keep pick mode on so more clicks keep searching (Mac behavior).
     } else if (lastPick.mode === 'measure-a') {
       setA(lastPick.point)
@@ -123,12 +126,21 @@ export function ViewerToolsPanel({
   async function runPhotoSearch(
     queryPoint = point,
     cam = camera,
-    offset = 0,
     append = false
   ) {
     if (!project.photoAPIBaseURL) return
+    const gen = ++photoSearchGenRef.current
     setPhotoBusy(true)
     setPhotoStatus(append ? 'Loading more…' : 'Searching…')
+    // Clear old results immediately on a new pick so they don't linger while the API runs.
+    if (!append) {
+      setPhotos([])
+      setPhotoHasMore(false)
+      setPhotoMaxResults(PHOTO_PAGE_SIZE)
+    }
+    const maxResults = append
+      ? photoMaxResults + PHOTO_PAGE_SIZE
+      : PHOTO_PAGE_SIZE
     try {
       const response = await searchPhotos({
         baseURL: project.photoAPIBaseURL,
@@ -136,23 +148,30 @@ export function ViewerToolsPanel({
         cameraPosition: cam,
         useSPZCoordinates: project.isSPZ,
         useServerCalibration: project.useServerCalibration,
-        maxResults: 6,
-        offset
+        maxResults,
+        offset: 0
       })
-      setPhotos((prev) => (append ? [...prev, ...response.photos] : response.photos))
+      // Ignore stale responses from an earlier click.
+      if (gen !== photoSearchGenRef.current) return
+      // Replace the list with the larger result set (SplatClickQuery _showResults).
+      setPhotos(response.photos)
+      setPhotoMaxResults(maxResults)
       setPhotoHasMore(response.hasMore)
-      setPhotoOffset(offset + response.photos.length)
       setPhotoStatus(
         response.photos.length === 0 && !append
           ? 'No matching photos'
           : `${append ? 'Loaded' : 'Found'} nearby photos`
       )
     } catch (error) {
-      if (!append) setPhotos([])
+      if (gen !== photoSearchGenRef.current) return
+      if (!append) {
+        setPhotos([])
+        setPhotoMaxResults(PHOTO_PAGE_SIZE)
+      }
       setPhotoHasMore(false)
       setPhotoStatus(error instanceof Error ? error.message : 'Photo search failed.')
     } finally {
-      setPhotoBusy(false)
+      if (gen === photoSearchGenRef.current) setPhotoBusy(false)
     }
   }
 
@@ -253,9 +272,13 @@ export function ViewerToolsPanel({
                     type="button"
                     className="pill-button compact"
                     disabled={photoBusy}
-                    onClick={() => void runPhotoSearch(point, camera, photoOffset, true)}
+                    onClick={() => void runPhotoSearch(point, camera, true)}
                   >
-                    {photoBusy ? <span className="spinner" /> : 'Fetch More (+6)'}
+                    {photoBusy ? (
+                      <span className="spinner" />
+                    ) : (
+                      `Fetch More (+${PHOTO_PAGE_SIZE})`
+                    )}
                   </button>
                 )}
               </>

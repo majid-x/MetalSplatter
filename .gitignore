@@ -8,9 +8,11 @@ DerivedData/
 .build
 Package.resolved
 
-# Windows Electron build artifacts (too large for GitHub)
+# Windows Electron app — never commit deps or packaged EXEs (GitHub 100MB limit)
+WindowsApp/node_modules/
+WindowsApp/out/
+WindowsApp/dist/
 WindowsApp/release/
 WindowsApp/release-*/
 WindowsApp/**/*.exe
 WindowsApp/**/*.blockmap
-

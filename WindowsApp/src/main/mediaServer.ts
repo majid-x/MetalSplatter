@@ -386,6 +386,15 @@ function vroomkViewerHtml(): string {
     let viewerHandle = null;
     let walker = null;
     let sceneNav = null;
+    /** SuperSplat splat-depth picker (PlayCanvas/Mac parity) — set on picker:ready. */
+    let splatPicker = null;
+    let pickRequestId = 0;
+    /** World-space Search Image pick (used for API + HTML fallback pin). */
+    let photoPickPoint = null;
+    /** PlayCanvas SplatClickQuery parity: 3D sphere pinned to splat surface. */
+    let photoMarkerEntity = null;
+    /** Brief screen-space flash at the click (like sqDot before 3D marker takes over). */
+    let photoClickFlash = null;
     /** PlayCanvas-style: LMB (walk) / RMB (tools) drag-look; cursor stays visible. */
     let dragLooking = false;
     let lastSprintHud = false;
@@ -554,6 +563,85 @@ function vroomkViewerHtml(): string {
       if (on) kickWalkFrame();
     }
 
+    function getWorldLayerId(app) {
+      try {
+        const layer = app.scene.layers.getLayerByName('World');
+        if (layer) return layer.id;
+      } catch (_) {}
+      return 0;
+    }
+
+    function clearPhotoMarker() {
+      photoPickPoint = null;
+      photoClickFlash = null;
+      if (photoMarkerEntity) {
+        try {
+          photoMarkerEntity.enabled = false;
+        } catch (_) {}
+      }
+    }
+
+    function updatePhotoMarkerScale(app) {
+      if (!photoMarkerEntity || !photoMarkerEntity.enabled) return;
+      const cam = findCamera(app);
+      let size = 0.05;
+      if (cam) {
+        const cp = cam.entity.getPosition();
+        const p = photoMarkerEntity.getPosition();
+        const d = Math.hypot(cp.x - p.x, cp.y - p.y, cp.z - p.z);
+        size = Math.min(0.5, Math.max(0.02, d * 0.012));
+      }
+      photoMarkerEntity.setLocalScale(size, size, size);
+    }
+
+    /** SplatClickQuery._placeMarker: blue sphere on the picked surface, distance-scaled. */
+    function placePhotoMarker(app, worldPosition) {
+      try {
+        const Entity = app.root.constructor;
+        if (!photoMarkerEntity) {
+          // PlayCanvas Entity requires the app (SuperSplat: new Entity(name, app)).
+          try {
+            photoMarkerEntity = new Entity('vroomkPhotoMarker', app);
+          } catch (_) {
+            photoMarkerEntity = new Entity('vroomkPhotoMarker');
+          }
+          photoMarkerEntity.addComponent('render', { type: 'sphere' });
+          try {
+            if (photoMarkerEntity.render) {
+              photoMarkerEntity.render.layers = [getWorldLayerId(app)];
+            }
+          } catch (_) {}
+          try {
+            const mis =
+              photoMarkerEntity.render && photoMarkerEntity.render.meshInstances;
+            if (mis && mis[0] && mis[0].material) {
+              const mat = mis[0].material.clone();
+              if (mat.diffuse && typeof mat.diffuse.set === 'function') {
+                mat.diffuse.set(0.18, 0.48, 1.0);
+              }
+              if (mat.emissive && typeof mat.emissive.set === 'function') {
+                mat.emissive.set(0.18, 0.48, 1.0);
+              }
+              if ('useLighting' in mat) mat.useLighting = false;
+              if (typeof mat.update === 'function') mat.update();
+              mis[0].material = mat;
+            }
+          } catch (_) {}
+          app.root.addChild(photoMarkerEntity);
+        }
+        photoMarkerEntity.enabled = true;
+        photoMarkerEntity.setPosition(
+          worldPosition[0],
+          worldPosition[1],
+          worldPosition[2]
+        );
+        updatePhotoMarkerScale(app);
+        kickWalkFrame();
+      } catch (err) {
+        console.warn('[vroomk] photo world marker failed', err);
+      }
+    }
+
     function setPickMode(mode) {
       // Photos pick only; measure uses setMeasureMode.
       if (mode && String(mode).startsWith('measure')) {
@@ -563,11 +651,17 @@ function vroomkViewerHtml(): string {
       if (mode === 'photos') {
         setMeasureMode(false);
         pickMode = 'photos';
+        clearPhotoMarker();
         banner.classList.add('on');
         banner.textContent = 'Click in the scene to search nearby photos';
+        drawToolOverlay();
       } else {
         pickMode = null;
-        if (!measureMode) banner.classList.remove('on');
+        clearPhotoMarker();
+        if (!measureMode) {
+          banner.classList.remove('on');
+          overlay.innerHTML = '';
+        }
       }
       syncToolVsWalk();
     }
@@ -580,15 +674,17 @@ function vroomkViewerHtml(): string {
       measureDeleteHoverIndex = null;
       if (measureMode) {
         pickMode = null;
+        clearPhotoMarker();
         banner.classList.add('on');
         banner.textContent = 'Measure on · click two points';
         emitMeasureState('Measure on · click two points');
-        drawMeasureOverlay();
+        drawToolOverlay();
       } else {
         // Mac: leaving Measure turns the tool off and drops hover/reticle.
         // Clear on-screen overlay so pins/lasers don't sit on top of other tools.
-        banner.classList.remove('on');
-        overlay.innerHTML = '';
+        if (pickMode !== 'photos') banner.classList.remove('on');
+        if (pickMode !== 'photos') overlay.innerHTML = '';
+        else drawToolOverlay();
         emitMeasureState(
           measureNodes.length === 0
             ? 'Measure off'
@@ -635,85 +731,124 @@ function vroomkViewerHtml(): string {
 
     function findCamera(app) {
       const cameras = app.root.findComponents('camera');
-      return cameras && cameras.length ? cameras[0] : null;
+      if (!cameras || !cameras.length) return null;
+      // Prefer the enabled camera SuperSplat is actually rendering with
+      // (PlayCanvas SplatClickQuery uses Camera-Main, not a disabled Camera).
+      for (let i = 0; i < cameras.length; i++) {
+        const c = cameras[i];
+        if (c && c.enabled && c.entity && c.entity.enabled) return c;
+      }
+      return cameras[0];
     }
 
-    function pickWorldPoint(app, clientX, clientY) {
+    /**
+     * PlayCanvas / Mac parity: pick the splat surface via SuperSplat GPU depth
+     * (picker.pickSurface), not a fixed-depth screen guess or Ammo raycast.
+     * Coords are normalized 0..1 like SuperSplat's internal fly-to-target.
+     */
+    async function pickWorldPoint(app, clientX, clientY) {
       const camera = findCamera(app);
       if (!camera) return null;
       const canvas = app.graphicsDevice.canvas;
       const rect = canvas.getBoundingClientRect();
-      const sx = ((clientX - rect.left) / rect.width) * canvas.width;
-      const sy = ((clientY - rect.top) / rect.height) * canvas.height;
+      const w = Math.max(1e-6, rect.width);
+      const h = Math.max(1e-6, rect.height);
+      const nx = (clientX - rect.left) / w;
+      const ny = (clientY - rect.top) / h;
+      if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
 
-      const from = camera.entity.getPosition().clone();
-      const to = camera.entity.getPosition().clone();
-      camera.screenToWorld(sx, sy, camera.nearClip, from);
-      camera.screenToWorld(sx, sy, camera.farClip, to);
+      const camPos = camera.entity.getPosition();
+      const camArr = [camPos.x, camPos.y, camPos.z];
 
-      let hit = null;
+      // 1) SuperSplat splat-depth pick (same idea as pc.Picker.getWorldPointAsync / Mac pick depth).
+      if (splatPicker) {
+        try {
+          let hit = null;
+          if (typeof splatPicker.pickSurface === 'function') {
+            hit = await splatPicker.pickSurface(nx, ny);
+          }
+          const pos = hit && hit.position ? hit.position : null;
+          if (pos && Number.isFinite(pos.x)) {
+            return { point: [pos.x, pos.y, pos.z], camera: camArr };
+          }
+          if (typeof splatPicker.pick === 'function') {
+            const p = await splatPicker.pick(nx, ny);
+            if (p && Number.isFinite(p.x)) {
+              return { point: [p.x, p.y, p.z], camera: camArr };
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2) Optional mesh/voxel collision ray (SuperSplat may attach this; Ammo often empty).
       try {
+        const sx = nx * canvas.width;
+        const sy = ny * canvas.height;
+        const from = camera.entity.getPosition().clone();
+        const to = camera.entity.getPosition().clone();
+        camera.screenToWorld(sx, sy, camera.nearClip, from);
+        camera.screenToWorld(sx, sy, camera.farClip, to);
         if (app.systems.rigidbody && app.systems.rigidbody.raycastFirst) {
-          hit = app.systems.rigidbody.raycastFirst(from, to);
+          const hit = app.systems.rigidbody.raycastFirst(from, to);
+          if (hit && hit.point) {
+            return {
+              point: [hit.point.x, hit.point.y, hit.point.z],
+              camera: camArr
+            };
+          }
         }
       } catch (_) {}
 
-      const camPos = camera.entity.getPosition();
-      if (hit && hit.point) {
-        return {
-          point: [hit.point.x, hit.point.y, hit.point.z],
-          camera: [camPos.x, camPos.y, camPos.z]
-        };
-      }
-
-      // Prefer depth near the last placed measure pin when no collision mesh.
-      let depth = 3;
-      if (measureNodes.length > 0) {
-        const last = measureNodes[measureNodes.length - 1].position;
-        depth = Math.max(0.4, dist([camPos.x, camPos.y, camPos.z], last));
-      }
-      const mid = camera.entity.getPosition().clone();
-      camera.screenToWorld(sx, sy, depth, mid);
-      return {
-        point: [mid.x, mid.y, mid.z],
-        camera: [camPos.x, camPos.y, camPos.z]
-      };
+      // No fake fixed-depth point — that made pins float off the splat / stick on screen.
+      return null;
     }
 
     function worldToScreen(app, point) {
-      const camera = findCamera(app);
-      if (!camera || !camera.camera) return null;
+      const camComp = findCamera(app);
+      if (!camComp) return null;
       const canvas = app.graphicsDevice.canvas;
       const rect = canvas.getBoundingClientRect();
-      const world = camera.entity.getPosition().clone();
+      const world = camComp.entity.getPosition().clone();
       world.set(point[0], point[1], point[2]);
 
       // SuperSplat convention: view-space z >= 0 is behind the camera.
       try {
         const viewPos = world.clone();
-        camera.camera.viewMatrix.transformPoint(world, viewPos);
+        camComp.viewMatrix.transformPoint(world, viewPos);
         if (viewPos.z >= 0) return null;
-      } catch (_) {}
+      } catch (_) {
+        try {
+          const viewPos = world.clone();
+          camComp.camera.viewMatrix.transformPoint(world, viewPos);
+          if (viewPos.z >= 0) return null;
+        } catch (_) {}
+      }
 
       let sx;
       let sy;
       try {
-        // Camera#worldToScreen(point) → Vec3 in canvas CSS pixels (SuperSplat path).
-        const screenPos = camera.camera.worldToScreen(world);
+        // CameraComponent.worldToScreen → canvas CSS pixels (matches SuperSplat annotations).
+        const screenPos = camComp.worldToScreen(world);
         sx = screenPos.x;
         sy = screenPos.y;
       } catch (_) {
         try {
-          const screen = world.clone();
-          camera.worldToScreen(world, screen);
-          // Device pixels → CSS pixels.
-          sx = (screen.x / canvas.width) * rect.width;
-          sy = (screen.y / canvas.height) * rect.height;
+          const screenPos = camComp.camera.worldToScreen(world);
+          sx = screenPos.x;
+          sy = screenPos.y;
         } catch (_) {
-          return null;
+          try {
+            const screen = world.clone();
+            camComp.worldToScreen(world, screen);
+            sx = (screen.x / canvas.width) * rect.width;
+            sy = (screen.y / canvas.height) * rect.height;
+          } catch (_) {
+            return null;
+          }
         }
       }
       if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
+      // worldToScreen may already be in page CSS relative to canvas; prefer canvas-local + rect.
       return { x: rect.left + sx, y: rect.top + sy };
     }
 
@@ -727,7 +862,7 @@ function vroomkViewerHtml(): string {
       return best;
     }
 
-    function addMeasurePoint(point, clientX, clientY) {
+    function addMeasurePoint(point) {
       let isStart = true;
       let distance = null;
       const previous = measureNodes[measureNodes.length - 1];
@@ -735,10 +870,11 @@ function vroomkViewerHtml(): string {
         isStart = false;
         distance = dist(previous.position, point) * measureFactor;
       }
+      // Store world position only — screen is recomputed every frame (Mac/PlayCanvas parity).
       const projected = viewerHandle ? worldToScreen(viewerHandle.app, point) : null;
       measureNodes.push({
         position: point,
-        screen: projected || { x: clientX, y: clientY },
+        screen: projected,
         isStartOfChain: isStart,
         distanceToPrevious: distance
       });
@@ -749,15 +885,11 @@ function vroomkViewerHtml(): string {
         status = 'Point placed · click second point · ' + measureNodes.length + ' points';
       }
       emitMeasureState(status);
-      drawMeasureOverlay();
+      drawToolOverlay();
+      kickWalkFrame();
     }
 
-    function handleMeasureClick(clientX, clientY) {
-      const result = pickWorldPoint(viewerHandle.app, clientX, clientY);
-      if (!result) {
-        emitMeasureState('No surface at click');
-        return;
-      }
+    async function handleMeasureClick(clientX, clientY) {
       if (measureDeleteMode) {
         // Prefer pin nearest the click in screen space (more reliable than world radius).
         let idx = measureDeleteHoverIndex;
@@ -793,99 +925,145 @@ function vroomkViewerHtml(): string {
         measureDeleteHoverIndex = null;
         banner.textContent = 'Measure on · click two points';
         emitMeasureState('Deleted pin · Measure on');
-        drawMeasureOverlay();
+        drawToolOverlay();
+        kickWalkFrame();
         return;
       }
-      addMeasurePoint(result.point, clientX, clientY);
-    }
-
-    function screenOf(app, node) {
-      const projected = worldToScreen(app, node.position);
-      if (projected) {
-        node.screen = projected;
-        return projected;
+      const result = await pickWorldPoint(viewerHandle.app, clientX, clientY);
+      if (!result) {
+        emitMeasureState('No surface at click');
+        return;
       }
-      return node.screen || null;
+      addMeasurePoint(result.point);
     }
 
-    function drawMeasureOverlay() {
+    function screenOf(app, nodeOrPoint) {
+      // Always reproject from world — never keep click-time clientX/Y (that stuck pins to the display).
+      const position = Array.isArray(nodeOrPoint) ? nodeOrPoint : nodeOrPoint.position;
+      const projected = worldToScreen(app, position);
+      if (nodeOrPoint && !Array.isArray(nodeOrPoint)) nodeOrPoint.screen = projected;
+      return projected;
+    }
+
+    function pinHtml(s, color, size) {
+      return (
+        '<div style="position:absolute;left:' + s.x + 'px;top:' + s.y +
+        'px;width:' + size + 'px;height:' + size + 'px;margin:-' + (size / 2) + 'px 0 0 -' + (size / 2) +
+        'px;border-radius:50%;background:' + color +
+        ';border:2px solid #fff;box-shadow:0 0 8px rgba(0,0,0,0.65);pointer-events:none;"></div>'
+      );
+    }
+
+    function drawToolOverlay() {
       if (!overlay.isConnected) return;
-      // Never draw measure chrome unless Measure tool is active (other tools own the view).
-      if (!measureMode) {
+      if (!viewerHandle) {
         overlay.innerHTML = '';
         return;
       }
-      if (!viewerHandle) {
+      // Draw measure chrome and/or Search Image pin.
+      if (!measureMode && pickMode !== 'photos') {
         overlay.innerHTML = '';
         return;
       }
       const app = viewerHandle.app;
       let html = '';
 
-      for (let i = 1; i < measureNodes.length; i++) {
-        const node = measureNodes[i];
-        if (node.isStartOfChain) continue;
-        const a = screenOf(app, measureNodes[i - 1]);
-        const b = screenOf(app, node);
-        if (!a || !b) continue;
-        html +=
-          '<div style="position:absolute;left:' + Math.min(a.x, b.x) + 'px;top:' + Math.min(a.y, b.y) +
-          'px;width:' + Math.max(1, Math.abs(b.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(b.y - a.y)) +
-          'px;pointer-events:none;">' +
-          '<svg width="100%" height="100%" style="overflow:visible">' +
-          '<line x1="' + (a.x - Math.min(a.x, b.x)) + '" y1="' + (a.y - Math.min(a.y, b.y)) +
-          '" x2="' + (b.x - Math.min(a.x, b.x)) + '" y2="' + (b.y - Math.min(a.y, b.y)) +
-          '" stroke="rgba(50,230,255,0.95)" stroke-width="2.5" />' +
-          '</svg></div>';
-        if (node.distanceToPrevious != null) {
-          const mx = (a.x + b.x) / 2;
-          const my = (a.y + b.y) / 2;
-          const label = formatMeasureDistance(node.distanceToPrevious);
+      if (measureMode) {
+        for (let i = 1; i < measureNodes.length; i++) {
+          const node = measureNodes[i];
+          if (node.isStartOfChain) continue;
+          const a = screenOf(app, measureNodes[i - 1]);
+          const b = screenOf(app, node);
+          if (!a || !b) continue;
           html +=
-            '<div style="position:absolute;left:' + mx + 'px;top:' + my +
-            'px;transform:translate(-50%,-50%);padding:4px 8px;border-radius:999px;' +
-            'background:rgba(0,0,0,0.55);color:rgb(51,242,255);font:600 12px Consolas,monospace;' +
-            'white-space:nowrap;pointer-events:none;">' + label + '</div>';
+            '<div style="position:absolute;left:' + Math.min(a.x, b.x) + 'px;top:' + Math.min(a.y, b.y) +
+            'px;width:' + Math.max(1, Math.abs(b.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(b.y - a.y)) +
+            'px;pointer-events:none;">' +
+            '<svg width="100%" height="100%" style="overflow:visible">' +
+            '<line x1="' + (a.x - Math.min(a.x, b.x)) + '" y1="' + (a.y - Math.min(a.y, b.y)) +
+            '" x2="' + (b.x - Math.min(a.x, b.x)) + '" y2="' + (b.y - Math.min(a.y, b.y)) +
+            '" stroke="rgba(50,230,255,0.95)" stroke-width="2.5" />' +
+            '</svg></div>';
+          if (node.distanceToPrevious != null) {
+            const mx = (a.x + b.x) / 2;
+            const my = (a.y + b.y) / 2;
+            const label = formatMeasureDistance(node.distanceToPrevious);
+            html +=
+              '<div style="position:absolute;left:' + mx + 'px;top:' + my +
+              'px;transform:translate(-50%,-50%);padding:4px 8px;border-radius:999px;' +
+              'background:rgba(0,0,0,0.55);color:rgb(51,242,255);font:600 12px Consolas,monospace;' +
+              'white-space:nowrap;pointer-events:none;">' + label + '</div>';
+          }
+        }
+
+        for (let i = 0; i < measureNodes.length; i++) {
+          const s = screenOf(app, measureNodes[i]);
+          if (!s) continue;
+          const active = measureDeleteMode && measureDeleteHoverIndex === i;
+          html += pinHtml(s, active ? 'rgb(255,90,90)' : 'rgb(40,220,255)', active ? 16 : 12);
+        }
+
+        if (measureHoverScreen) {
+          const h = measureHoverScreen;
+          html +=
+            '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
+            'px;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;' +
+            'border:2px solid rgba(50,230,255,0.55);pointer-events:none;"></div>' +
+            '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
+            'px;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;' +
+            'background:rgba(50,230,255,0.95);pointer-events:none;"></div>';
+          const prev = measureNodes[measureNodes.length - 1];
+          if (prev && prev.isStartOfChain && !measureDeleteMode) {
+            const a = screenOf(app, prev);
+            if (a) {
+              html +=
+                '<div style="position:absolute;left:' + Math.min(a.x, h.x) + 'px;top:' + Math.min(a.y, h.y) +
+                'px;width:' + Math.max(1, Math.abs(h.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(h.y - a.y)) +
+                'px;pointer-events:none;"><svg width="100%" height="100%" style="overflow:visible">' +
+                '<line x1="' + (a.x - Math.min(a.x, h.x)) + '" y1="' + (a.y - Math.min(a.y, h.y)) +
+                '" x2="' + (h.x - Math.min(a.x, h.x)) + '" y2="' + (h.y - Math.min(a.y, h.y)) +
+                '" stroke="rgba(50,230,255,0.4)" stroke-width="2" stroke-dasharray="4 4" /></svg></div>';
+            }
+          }
         }
       }
 
-      for (let i = 0; i < measureNodes.length; i++) {
-        const s = screenOf(app, measureNodes[i]);
-        if (!s) continue;
-        const active = measureDeleteMode && measureDeleteHoverIndex === i;
-        const size = active ? 16 : 12;
-        html +=
-          '<div style="position:absolute;left:' + s.x + 'px;top:' + s.y +
-          'px;width:' + size + 'px;height:' + size + 'px;margin:-' + (size / 2) + 'px 0 0 -' + (size / 2) +
-          'px;border-radius:50%;background:' + (active ? 'rgb(255,90,90)' : 'rgb(40,220,255)') +
-          ';border:2px solid #fff;box-shadow:0 0 8px rgba(0,0,0,0.65);pointer-events:none;"></div>';
-      }
-
-      if (measureMode && measureHoverScreen) {
-        const h = measureHoverScreen;
-        html +=
-          '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
-          'px;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;' +
-          'border:2px solid rgba(50,230,255,0.55);pointer-events:none;"></div>' +
-          '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
-          'px;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;' +
-          'background:rgba(50,230,255,0.95);pointer-events:none;"></div>';
-        const prev = measureNodes[measureNodes.length - 1];
-        if (prev && prev.isStartOfChain && !measureDeleteMode) {
-          const a = screenOf(app, prev);
-          if (a) {
+      // Search Image: brief click flash (sqDot). World pin stays as HTML fallback
+      // only when the 3D sphere marker could not be created.
+      if (pickMode === 'photos') {
+        if (photoClickFlash) {
+          if (performance.now() < photoClickFlash.until) {
+            const f = photoClickFlash;
             html +=
-              '<div style="position:absolute;left:' + Math.min(a.x, h.x) + 'px;top:' + Math.min(a.y, h.y) +
-              'px;width:' + Math.max(1, Math.abs(h.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(h.y - a.y)) +
-              'px;pointer-events:none;"><svg width="100%" height="100%" style="overflow:visible">' +
-              '<line x1="' + (a.x - Math.min(a.x, h.x)) + '" y1="' + (a.y - Math.min(a.y, h.y)) +
-              '" x2="' + (h.x - Math.min(a.x, h.x)) + '" y2="' + (h.y - Math.min(a.y, h.y)) +
-              '" stroke="rgba(50,230,255,0.4)" stroke-width="2" stroke-dasharray="4 4" /></svg></div>';
+              '<div style="position:fixed;left:' + f.x + 'px;top:' + f.y +
+              'px;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;' +
+              'background:#2f7bff;border:2.5px solid #fff;' +
+              'box-shadow:0 0 0 3px rgba(47,123,255,0.35),0 0 14px rgba(47,123,255,0.7);' +
+              'pointer-events:none;"></div>';
+          } else {
+            photoClickFlash = null;
+          }
+        }
+        const has3d =
+          photoMarkerEntity && photoMarkerEntity.enabled;
+        if (!has3d && photoPickPoint) {
+          const s = screenOf(app, photoPickPoint);
+          if (s) {
+            html +=
+              '<div style="position:absolute;left:' + s.x + 'px;top:' + s.y +
+              'px;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;' +
+              'border:2px solid rgba(47,123,255,0.85);pointer-events:none;"></div>';
+            html += pinHtml(s, 'rgb(47,123,255)', 14);
           }
         }
       }
 
       overlay.innerHTML = html;
+    }
+
+    // Back-compat alias used by older call sites in this file.
+    function drawMeasureOverlay() {
+      drawToolOverlay();
     }
 
     window.addEventListener('message', (event) => {
@@ -945,6 +1123,63 @@ function vroomkViewerHtml(): string {
       return walker;
     }
 
+    function hasCustomOrientationNav(nav) {
+      return !!(nav && nav.orientationUp && nav.orientationForward);
+    }
+
+    /**
+     * Mac usesCustomOrientation: view matrix skips the common 180 deg Z PLY
+     * calibration, so picks/nav/camera stay in model space. SuperSplat always
+     * does entity.setLocalEulerAngles(0,0,180) for .ply — undo that here so
+     * Search Image / Measure / walk match Mac (Sample 3 TOPDOWN etc.).
+     */
+    function alignSplatToMacNavigation(app, nav) {
+      if (!app || !hasCustomOrientationNav(nav)) return;
+      try {
+        const comps = app.root.findComponents('gsplat');
+        if (!comps || !comps.length) return;
+        for (let i = 0; i < comps.length; i++) {
+          const ent = comps[i] && comps[i].entity;
+          if (!ent) continue;
+          ent.setLocalEulerAngles(0, 0, 0);
+        }
+        kickWalkFrame();
+      } catch (err) {
+        console.warn('[vroomk] splat orientation align failed', err);
+      }
+    }
+
+    /** Undo gsplat entity transform → splat-local / Mac model space. */
+    function worldToSplatModel(app, worldPoint) {
+      try {
+        const comps = app.root.findComponents('gsplat');
+        const ent = comps && comps[0] && comps[0].entity;
+        if (!ent || typeof ent.getWorldTransform !== 'function') {
+          return worldPoint;
+        }
+        const inv = ent.getWorldTransform().clone().invert();
+        const tmp = ent.getPosition().clone();
+        tmp.set(worldPoint[0], worldPoint[1], worldPoint[2]);
+        inv.transformPoint(tmp, tmp);
+        return [tmp.x, tmp.y, tmp.z];
+      } catch (_) {
+        // SuperSplat default PLY orientation is 180° Z ≡ (-x,-y,z).
+        return [-worldPoint[0], -worldPoint[1], worldPoint[2]];
+      }
+    }
+
+    /**
+     * Mac photo-search display frame (MetalKitSceneRenderer.handlePointClick):
+     *   custom orientation → model pick as-is
+     *   else → SplatNavigationSpace.fromModel(model) = (-x,-y,z)
+     * Camera from the FPS walker is already in that frame — do not transform it.
+     */
+    function toMacPhotoPoint(app, worldPick, nav) {
+      const model = worldToSplatModel(app, worldPick);
+      if (hasCustomOrientationNav(nav)) return model;
+      return [-model[0], -model[1], model[2]];
+    }
+
     function applyMacWalkControls(moveSpeed, resetToSpawn) {
       if (!viewerHandle?.state?.loaded) return;
       // Don't steal the cursor while Measure / Search Image need clicks.
@@ -959,6 +1194,8 @@ function vroomkViewerHtml(): string {
         state.gamingControls = false;
         // Prefer fly so SuperSplat doesn't attach capsule gravity; we overwrite the entity.
         state.cameraMode = 'fly';
+
+        alignSplatToMacNavigation(viewerHandle.app, sceneNav);
 
         const w = ensureWalker(moveSpeed);
         w.setPickMode(false);
@@ -988,6 +1225,10 @@ function vroomkViewerHtml(): string {
       viewerHandle = await createViewer({ container: document.body, settings, ...options });
       document.body.appendChild(overlay);
       document.body.appendChild(sprintHud);
+      // Capture splat depth picker (fires after splat load — PlayCanvas/Mac style surface pick).
+      viewerHandle.events?.on?.('picker:ready', (picker) => {
+        splatPicker = picker;
+      });
       post({ type: 'ready' });
 
       const enterMacWalk = (reset) => {
@@ -1060,9 +1301,9 @@ function vroomkViewerHtml(): string {
         canvas.style.outline = 'none';
       } catch (_) {}
 
-      // PlayCanvas-style drag look — cursor stays visible (no pointer-lock).
+      // Default arrow cursor (not grab/hand).
       try {
-        canvas.style.cursor = 'grab';
+        canvas.style.cursor = 'default';
       } catch (_) {}
 
       window.addEventListener('pointermove', (event) => {
@@ -1075,7 +1316,6 @@ function vroomkViewerHtml(): string {
           // RMB drag-look while Measure / Photos own LMB clicks.
           if (event.target === canvas || event.target === document.body) {
             dragLooking = true;
-            try { canvas.style.cursor = 'grabbing'; } catch (_) {}
             try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
             event.preventDefault();
           }
@@ -1086,27 +1326,45 @@ function vroomkViewerHtml(): string {
         if (measureMode) {
           event.preventDefault();
           event.stopPropagation();
-          handleMeasureClick(event.clientX, event.clientY);
+          void handleMeasureClick(event.clientX, event.clientY);
           return;
         }
         if (pickMode === 'photos') {
           if (event.target !== canvas) return;
-          const result = pickWorldPoint(viewerHandle.app, event.clientX, event.clientY);
-          if (!result) return;
           event.preventDefault();
           event.stopPropagation();
-          post({
-            type: 'pick',
-            mode: pickMode,
-            point: result.point,
-            camera: result.camera
+          const req = ++pickRequestId;
+          const cx = event.clientX;
+          const cy = event.clientY;
+          photoClickFlash = { x: cx, y: cy, until: performance.now() + 350 };
+          drawToolOverlay();
+          void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
+            if (!result || req !== pickRequestId || pickMode !== 'photos') return;
+            // Marker stays in SuperSplat world (where the user clicked).
+            photoPickPoint = result.point;
+            placePhotoMarker(viewerHandle.app, result.point);
+            // Hide the temporary screen flash once the surface marker is placed.
+            photoClickFlash = null;
+            drawToolOverlay();
+            kickWalkFrame();
+            // API point must match Mac display/nav frame (custom-orientation aware).
+            const apiPoint = toMacPhotoPoint(
+              viewerHandle.app,
+              result.point,
+              sceneNav
+            );
+            post({
+              type: 'pick',
+              mode: pickMode,
+              point: apiPoint,
+              camera: result.camera
+            });
           });
           return;
         }
-        // Walk mode: click-drag to look (cursor visible).
+        // Walk mode: click-drag to look (arrow cursor stays).
         if (event.target === canvas || event.target === document.body) {
           dragLooking = true;
-          try { canvas.style.cursor = 'grabbing'; } catch (_) {}
           try { canvas.focus({ preventScroll: true }); } catch (_) { try { canvas.focus(); } catch (_) {} }
           try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
           event.stopPropagation();
@@ -1115,13 +1373,13 @@ function vroomkViewerHtml(): string {
       window.addEventListener('pointerup', (event) => {
         if (event.button === 0 || event.button === 2) {
           dragLooking = false;
-          try { canvas.style.cursor = 'grab'; } catch (_) {}
+          try { canvas.style.cursor = 'default'; } catch (_) {}
           try { canvas.releasePointerCapture(event.pointerId); } catch (_) {}
         }
       }, true);
       window.addEventListener('pointercancel', () => {
         dragLooking = false;
-        try { canvas.style.cursor = 'grab'; } catch (_) {}
+        try { canvas.style.cursor = 'default'; } catch (_) {}
       }, true);
       window.addEventListener('contextmenu', (event) => {
         if (event.target === canvas) event.preventDefault();
@@ -1130,16 +1388,9 @@ function vroomkViewerHtml(): string {
       window.addEventListener('pointermove', (event) => {
         if (!measureMode || !viewerHandle) return;
         const now = performance.now();
-        if (now - lastHoverPick < 32) return;
+        if (now - lastHoverPick < 40) return;
         lastHoverPick = now;
         measureHoverScreen = { x: event.clientX, y: event.clientY };
-        const result = pickWorldPoint(viewerHandle.app, event.clientX, event.clientY);
-        if (!result) {
-          measureHover = null;
-          measureDeleteHoverIndex = null;
-          drawMeasureOverlay();
-          return;
-        }
         if (measureDeleteMode) {
           let best = null;
           let bestD = 28;
@@ -1151,11 +1402,24 @@ function vroomkViewerHtml(): string {
           }
           measureDeleteHoverIndex = best;
           measureHover = best != null ? measureNodes[best].position : null;
-        } else {
-          measureHover = result.point;
-          measureDeleteHoverIndex = null;
+          drawToolOverlay();
+          return;
         }
-        drawMeasureOverlay();
+        const req = ++pickRequestId;
+        const cx = event.clientX;
+        const cy = event.clientY;
+        void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
+          if (req !== pickRequestId || !measureMode) return;
+          if (!result) {
+            measureHover = null;
+            measureDeleteHoverIndex = null;
+          } else {
+            measureHover = result.point;
+            measureDeleteHoverIndex = null;
+          }
+          drawToolOverlay();
+          kickWalkFrame();
+        });
       }, true);
 
       // Drive FPS walk after SuperSplat's camera update (registered later → runs later).
@@ -1168,7 +1432,17 @@ function vroomkViewerHtml(): string {
         } else if (sprintHud) {
           sprintHud.style.display = 'none';
         }
-        if (measureMode) drawMeasureOverlay();
+        // Keep photo marker screen-size stable while orbiting (SplatClickQuery).
+        if (pickMode === 'photos' && photoMarkerEntity && photoMarkerEntity.enabled) {
+          updatePhotoMarkerScale(viewerHandle.app);
+        }
+        // Reproject HTML pins / click flash whenever a frame runs.
+        if (
+          measureMode ||
+          (pickMode === 'photos' && (photoPickPoint || photoClickFlash))
+        ) {
+          drawToolOverlay();
+        }
       });
 
       post({ type: 'bridge-ready' });

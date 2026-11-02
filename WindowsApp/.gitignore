@@ -1,13 +1,26 @@
+# Dependencies & build output
 node_modules/
 out/
 dist/
 dist-electron/
-# electron-builder outputs (EXEs are >100MB — do not commit)
+
+# electron-builder packaged apps (EXEs exceed GitHub 100MB)
 release/
 release-*/
 *.exe
 *.blockmap
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm
+electron-builder.yaml
+!electron-builder.yml
+!electron.vite.config.*
+
+# Local / OS
 .DS_Store
+Thumbs.db
 *.log
 .env
 .env.*

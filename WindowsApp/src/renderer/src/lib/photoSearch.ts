@@ -14,6 +14,11 @@ export type PhotoSearchResponse = {
   hasMore: boolean
 }
 
+/**
+ * Mac PhotoSearchClient.toAPIPoint — expects Mac *display/nav* coords
+ * (mediaServer already maps SuperSplat world → that frame via toMacPhotoPoint).
+ * When spz && !calibration, apply another 180° Z undo for COLMAP.
+ */
 function apiPoint(point: [number, number, number], useSPZ: boolean, useServerCalibration: boolean): [number, number, number] {
   const sendRaw = useServerCalibration || !useSPZ
   if (sendRaw) return point
