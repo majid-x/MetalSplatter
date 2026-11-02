@@ -1,16 +1,14 @@
 /**
- * First-person walk — ported from windowsrenderclientapp walk-camera.ts.
+ * First-person walk — Mac MetalKitSceneRenderer parity for SuperSplat.
  * No orbit/pan. Pointer-lock look + ground-plane WASD + Q/E vertical.
  *
- * Feel:
- *   moveSpeed        0.6  world units/sec (DEFAULT_WALK_SPEED)
+ * Feel (Mac Constants):
+ *   moveSpeed        3.5 m/s default — Supabase move_speed when set; nav ignored
  *   lookSensitivity  0.12 degrees per mouse pixel
  *   maxPitch         ±89°
- *   fallback speed   0.75 if omitted
  */
 
-const DEFAULT_WALK_SPEED = 0.6
-const FALLBACK_WALK_SPEED = 0.75
+const DEFAULT_WALK_SPEED = 3.5 // Mac Constants.cameraMoveSpeed
 const LOOK_SENSITIVITY_DEG = 0.12
 const MAX_PITCH = 89
 const PLAYER_RADIUS = 0.04
@@ -361,14 +359,11 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
   let stairs = buildStairs(parsed.stairs, parsed.start?.y ?? 0)
   let collisionEnabled = true
 
+  // Mac: walk speed from Supabase move_speed only — nav.txt move_speed is ignored.
   let moveSpeed =
     typeof options.moveSpeed === 'number' && options.moveSpeed > 0
       ? options.moveSpeed
-      : typeof sceneNav?.moveSpeed === 'number' && sceneNav.moveSpeed > 0
-        ? sceneNav.moveSpeed
-        : DEFAULT_WALK_SPEED
-  // Cap absurd Supabase speeds — reference interiors use ~0.6.
-  if (moveSpeed > 2.5) moveSpeed = DEFAULT_WALK_SPEED
+      : DEFAULT_WALK_SPEED
 
   let lookSensitivity = LOOK_SENSITIVITY_DEG
   const maxPitch = MAX_PITCH
@@ -616,9 +611,7 @@ export function createFpsWalkCamera(sceneNav, options = {}) {
       pressed.clear()
     },
     setMoveSpeed(speed) {
-      if (typeof speed === 'number' && speed > 0) {
-        moveSpeed = Math.max(0.05, Math.min(speed, 2.5))
-      }
+      if (typeof speed === 'number' && speed > 0) moveSpeed = speed
     },
     setLookSensitivity(s) {
       if (typeof s === 'number' && s > 0) lookSensitivity = s
@@ -660,4 +653,4 @@ export function createMacWalker(nav, options) {
   return createFpsWalkCamera(nav, options)
 }
 
-export { DEFAULT_WALK_SPEED, FALLBACK_WALK_SPEED, LOOK_SENSITIVITY_DEG }
+export { DEFAULT_WALK_SPEED, LOOK_SENSITIVITY_DEG }

@@ -11,7 +11,7 @@ export type ViewerLaunchOptions = {
   camera?: SceneCameraPose | null
   /** Full nav.txt path — walkable polygons / wall boxes for FPS clamp + slide. */
   navigationPath?: string | null
-  /** Walk speed m/s — Supabase move_speed when set; FPS default 0.6. */
+  /** Walk speed m/s — Supabase move_speed when set; Mac default 3.5. */
   moveSpeed?: number | null
   projectName?: string
 }

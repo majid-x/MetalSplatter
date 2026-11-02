@@ -6,8 +6,8 @@ import type { ViewerLaunchOptions } from '../shared/viewerChannels'
 import { parseNav } from './navParser'
 import { projectsRoot } from './projectStore'
 
-/** FPS first-person walk default (matches fpsWalkCamera.js / walk-camera.ts). */
-const DEFAULT_FPS_MOVE_SPEED = 0.6
+/** FPS first-person walk default — Mac Constants.cameraMoveSpeed. */
+const DEFAULT_FPS_MOVE_SPEED = 3.5
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -259,7 +259,7 @@ export function buildViewerUrl(options: ViewerLaunchOptions | string): string {
     params.set('collision', contentUrlFor(launch.collisionPath))
   }
 
-  // FPS walk speed (Supabase move_speed when set, else 0.6).
+  // FPS walk speed (Supabase move_speed when set, else Mac default 3.5).
   const speed =
     typeof launch.moveSpeed === 'number' && launch.moveSpeed > 0
       ? launch.moveSpeed
@@ -347,7 +347,7 @@ function vroomkViewerHtml(): string {
       },
       moveSpeed: (() => {
         const raw = Number(url.searchParams.get('movespeed'));
-        return Number.isFinite(raw) && raw > 0 ? raw : 0.6;
+        return Number.isFinite(raw) && raw > 0 ? raw : ${DEFAULT_FPS_MOVE_SPEED};
       })(),
       sceneNav: navUrl
         ? (navUrl.startsWith('data:')
