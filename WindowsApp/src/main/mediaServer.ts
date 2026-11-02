@@ -478,20 +478,88 @@ function vroomkViewerHtml(): string {
       }
     }
 
+    function v3n(v) {
+      const L = Math.hypot(v[0], v[1], v[2]) || 1;
+      return [v[0] / L, v[1] / L, v[2] / L];
+    }
+    function v3cross(a, b) {
+      return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    }
+    /** Quat (x,y,z,w) from orthonormal columns right / up / back (−forward). */
+    function quatFromBasis(right, up, back) {
+      const m00 = right[0], m01 = up[0], m02 = back[0];
+      const m10 = right[1], m11 = up[1], m12 = back[1];
+      const m20 = right[2], m21 = up[2], m22 = back[2];
+      const tr = m00 + m11 + m22;
+      let x, y, z, w;
+      if (tr > 0) {
+        const s = Math.sqrt(tr + 1) * 2;
+        w = 0.25 * s;
+        x = (m21 - m12) / s;
+        y = (m02 - m20) / s;
+        z = (m10 - m01) / s;
+      } else if (m00 > m11 && m00 > m22) {
+        const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+        w = (m21 - m12) / s;
+        x = 0.25 * s;
+        y = (m01 + m10) / s;
+        z = (m02 + m20) / s;
+      } else if (m11 > m22) {
+        const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+        w = (m02 - m20) / s;
+        x = (m01 + m10) / s;
+        y = 0.25 * s;
+        z = (m12 + m21) / s;
+      } else {
+        const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+        w = (m10 - m01) / s;
+        x = (m02 + m20) / s;
+        y = (m12 + m21) / s;
+        z = 0.25 * s;
+      }
+      return [x, y, z, w];
+    }
+
     function applyPoseToCamera(pose) {
       const camera = findCamera(viewerHandle.app);
       if (!camera?.entity || !pose) return;
       const e = camera.entity;
       const p = pose.position;
-      const t = pose.target;
-      // Mac-style derived camera up (from look) — prevents roll while walking.
-      const up = pose.up || [0, 1, 0];
+      // Mac viewMatrix: right = F×navUp, up = right×F, look along F (entity −Z).
+      // SuperSplat's applyCamera uses setEulerAngles (forces world Y-up / roll=0) — overwrite
+      // with an explicit basis so Z-up [orientation] scenes stay level.
+      let forward = pose.forward;
+      if (!forward || forward.length < 3) {
+        const t = pose.target;
+        forward = v3n([t[0] - p[0], t[1] - p[1], t[2] - p[2]]);
+      } else {
+        forward = v3n(forward);
+      }
+      const navUp = pose.navigationUp || pose.up || [0, 1, 0];
+      let right = v3cross(forward, navUp);
+      let rLen = Math.hypot(right[0], right[1], right[2]);
+      if (rLen < 1e-5) {
+        const alt = Math.abs(navUp[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        right = v3cross(forward, alt);
+        rLen = Math.hypot(right[0], right[1], right[2]) || 1;
+      }
+      right = [right[0] / rLen, right[1] / rLen, right[2] / rLen];
+      const up = v3n(v3cross(right, forward));
+      const back = [-forward[0], -forward[1], -forward[2]];
+      const [qx, qy, qz, qw] = quatFromBasis(right, up, back);
       e.setPosition(p[0], p[1], p[2]);
-      e.lookAt(t[0], t[1], t[2], up[0], up[1], up[2]);
+      try {
+        e.setRotation(qx, qy, qz, qw);
+      } catch (_) {
+        try {
+          e.setLocalRotation(qx, qy, qz, qw);
+        } catch (__) {
+          e.lookAt(p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
+        }
+      }
       if (camera.camera && typeof pose.fov === 'number') {
         camera.camera.fov = pose.fov;
       }
-      // SuperSplat is on-demand after load — must request a frame or WASD never ticks.
       viewerHandle.app.renderNextFrame = true;
     }
 
@@ -499,9 +567,37 @@ function vroomkViewerHtml(): string {
       return !!(sceneNav && Array.isArray(sceneNav.startPosition) && sceneNav.startPosition.length >= 3);
     }
 
-    /** Mac Constants: camera at (0, cameraGroundY=0, cameraStartZ=1.54), look -Z.
-     * Do NOT apply Metal's rot180Z here — SuperSplat already loads PLYs upright;
-     * that flip was what made this scene appear inverted. */
+    function hasCustomOrientation() {
+      return !!(sceneNav && sceneNav.orientationUp && sceneNav.orientationForward);
+    }
+
+    /**
+     * SuperSplat always setLocalEulerAngles(0,0,180) on PLY loads. Mac only applies that
+     * rot180Z when there is NO custom [orientation]. Undo the flip so nav coords match the splat.
+     */
+    function undoSuperSplatPlyFlipForCustomOrientation() {
+      if (!hasCustomOrientation() || !viewerHandle?.app?.root) return;
+      let comps = [];
+      try {
+        comps = viewerHandle.app.root.findComponents('gsplat') || [];
+      } catch (_) {
+        comps = [];
+      }
+      for (const c of comps) {
+        const ent = c && c.entity;
+        if (!ent || ent._vroomkMacOrient) continue;
+        ent._vroomkMacOrient = true;
+        try {
+          ent.setLocalEulerAngles(0, 0, 0);
+        } catch (_) {
+          try {
+            ent.setLocalRotation(0, 0, 0, 1);
+          } catch (__) {}
+        }
+      }
+    }
+
+    /** Mac Constants: camera at (0, cameraGroundY=0, cameraStartZ=1.54), look -Z. */
     function macDefaultStartNav() {
       return {
         startPosition: [0, 0, 1.54],
@@ -960,6 +1056,9 @@ function vroomkViewerHtml(): string {
         // Prefer fly so SuperSplat doesn't attach capsule gravity; we overwrite the entity.
         state.cameraMode = 'fly';
 
+        // Match Mac: no PLY 180° Z when [orientation] is present.
+        undoSuperSplatPlyFlipForCustomOrientation();
+
         const w = ensureWalker(moveSpeed);
         w.setPickMode(false);
         w.setInputBlocked(false);
@@ -1169,6 +1268,12 @@ function vroomkViewerHtml(): string {
           sprintHud.style.display = 'none';
         }
         if (measureMode) drawMeasureOverlay();
+      });
+      // Apply again on prerender so we win over SuperSplat's Y-up setEulerAngles.
+      viewerHandle.app.on('prerender', () => {
+        if (walker && viewerHandle?.state?.loaded) {
+          applyPoseToCamera(walker.getPose());
+        }
       });
 
       post({ type: 'bridge-ready' });
