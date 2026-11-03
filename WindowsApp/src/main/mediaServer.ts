@@ -389,14 +389,18 @@ function vroomkViewerHtml(): string {
     /** SuperSplat splat-depth picker (PlayCanvas/Mac parity) — set on picker:ready. */
     let splatPicker = null;
     let pickRequestId = 0;
-    /** World-space Search Image pick (used for API + HTML fallback pin). */
+    /** World-space Search Image pick — same Measure-style HTML pin, reprojected each frame. */
     let photoPickPoint = null;
-    /** PlayCanvas SplatClickQuery parity: 3D sphere pinned to splat surface. */
-    let photoMarkerEntity = null;
-    /** Brief screen-space flash at the click (like sqDot before 3D marker takes over). */
+    /** Brief screen-space flash at the click until the world pick resolves. */
     let photoClickFlash = null;
     /** PlayCanvas-style: LMB (walk) / RMB (tools) drag-look; cursor stays visible. */
     let dragLooking = false;
+    /**
+     * Measure / Search Image: LMB down may become look-drag or a pick on release.
+     * { x, y, pointerId, kind: 'measure'|'photos' }
+     */
+    let pendingToolPointer = null;
+    const TOOL_DRAG_THRESHOLD_PX = 6;
     let lastSprintHud = false;
 
     // Mac-parity measure state (PlayCanvas SplatMeasurer / MetalKitSceneRenderer).
@@ -479,15 +483,37 @@ function vroomkViewerHtml(): string {
       if (!viewerHandle?.state?.loaded) return;
       if (toolsNeedCursor()) {
         dragLooking = false;
-        // Keep walk/look alive; LMB is for picks — RMB-drag look.
+        pendingToolPointer = null;
+        // Keep walk/look alive; LMB click picks, LMB/RMB drag looks.
         if (walker) {
           walker.setPickMode(false);
           walker.setInputBlocked(false);
         }
         try { viewerHandle.state.inputEnabled = false; } catch (_) {}
       } else {
+        pendingToolPointer = null;
         applyMacWalkControls(window.sse.moveSpeed, false);
       }
+    }
+
+    function runPhotoPickAt(cx, cy) {
+      const req = ++pickRequestId;
+      photoClickFlash = { x: cx, y: cy, until: performance.now() + 350 };
+      drawToolOverlay();
+      void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
+        if (!result || req !== pickRequestId || pickMode !== 'photos') return;
+        photoPickPoint = result.point;
+        photoClickFlash = null;
+        drawToolOverlay();
+        kickWalkFrame();
+        const apiPoint = toMacPhotoPoint(viewerHandle.app, result.point, sceneNav);
+        post({
+          type: 'pick',
+          mode: pickMode,
+          point: apiPoint,
+          camera: result.camera
+        });
+      });
     }
 
     function v3n(v) {
@@ -632,83 +658,9 @@ function vroomkViewerHtml(): string {
       if (on) kickWalkFrame();
     }
 
-    function getWorldLayerId(app) {
-      try {
-        const layer = app.scene.layers.getLayerByName('World');
-        if (layer) return layer.id;
-      } catch (_) {}
-      return 0;
-    }
-
     function clearPhotoMarker() {
       photoPickPoint = null;
       photoClickFlash = null;
-      if (photoMarkerEntity) {
-        try {
-          photoMarkerEntity.enabled = false;
-        } catch (_) {}
-      }
-    }
-
-    function updatePhotoMarkerScale(app) {
-      if (!photoMarkerEntity || !photoMarkerEntity.enabled) return;
-      const cam = findCamera(app);
-      let size = 0.05;
-      if (cam) {
-        const cp = cam.entity.getPosition();
-        const p = photoMarkerEntity.getPosition();
-        const d = Math.hypot(cp.x - p.x, cp.y - p.y, cp.z - p.z);
-        size = Math.min(0.5, Math.max(0.02, d * 0.012));
-      }
-      photoMarkerEntity.setLocalScale(size, size, size);
-    }
-
-    /** SplatClickQuery._placeMarker: blue sphere on the picked surface, distance-scaled. */
-    function placePhotoMarker(app, worldPosition) {
-      try {
-        const Entity = app.root.constructor;
-        if (!photoMarkerEntity) {
-          // PlayCanvas Entity requires the app (SuperSplat: new Entity(name, app)).
-          try {
-            photoMarkerEntity = new Entity('vroomkPhotoMarker', app);
-          } catch (_) {
-            photoMarkerEntity = new Entity('vroomkPhotoMarker');
-          }
-          photoMarkerEntity.addComponent('render', { type: 'sphere' });
-          try {
-            if (photoMarkerEntity.render) {
-              photoMarkerEntity.render.layers = [getWorldLayerId(app)];
-            }
-          } catch (_) {}
-          try {
-            const mis =
-              photoMarkerEntity.render && photoMarkerEntity.render.meshInstances;
-            if (mis && mis[0] && mis[0].material) {
-              const mat = mis[0].material.clone();
-              if (mat.diffuse && typeof mat.diffuse.set === 'function') {
-                mat.diffuse.set(0.18, 0.48, 1.0);
-              }
-              if (mat.emissive && typeof mat.emissive.set === 'function') {
-                mat.emissive.set(0.18, 0.48, 1.0);
-              }
-              if ('useLighting' in mat) mat.useLighting = false;
-              if (typeof mat.update === 'function') mat.update();
-              mis[0].material = mat;
-            }
-          } catch (_) {}
-          app.root.addChild(photoMarkerEntity);
-        }
-        photoMarkerEntity.enabled = true;
-        photoMarkerEntity.setPosition(
-          worldPosition[0],
-          worldPosition[1],
-          worldPosition[2]
-        );
-        updatePhotoMarkerScale(app);
-        kickWalkFrame();
-      } catch (err) {
-        console.warn('[vroomk] photo world marker failed', err);
-      }
     }
 
     function setPickMode(mode) {
@@ -1116,32 +1068,25 @@ function vroomkViewerHtml(): string {
         }
       }
 
-      // Search Image: brief click flash (sqDot). World pin stays as HTML fallback
-      // only when the 3D sphere marker could not be created.
+      // Search Image: same cyan HTML pin as Measure (reprojected every frame).
       if (pickMode === 'photos') {
+        const oscale = measureOverlayScale;
+        const pinSize = Math.max(6, 12 * oscale);
         if (photoClickFlash) {
           if (performance.now() < photoClickFlash.until) {
-            const f = photoClickFlash;
-            html +=
-              '<div style="position:fixed;left:' + f.x + 'px;top:' + f.y +
-              'px;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;' +
-              'background:#2f7bff;border:2.5px solid #fff;' +
-              'box-shadow:0 0 0 3px rgba(47,123,255,0.35),0 0 14px rgba(47,123,255,0.7);' +
-              'pointer-events:none;"></div>';
+            html += pinHtml(
+              { x: photoClickFlash.x, y: photoClickFlash.y },
+              'rgb(40,220,255)',
+              pinSize
+            );
           } else {
             photoClickFlash = null;
           }
         }
-        const has3d =
-          photoMarkerEntity && photoMarkerEntity.enabled;
-        if (!has3d && photoPickPoint) {
+        if (photoPickPoint) {
           const s = screenOf(app, photoPickPoint);
           if (s) {
-            html +=
-              '<div style="position:absolute;left:' + s.x + 'px;top:' + s.y +
-              'px;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;' +
-              'border:2px solid rgba(47,123,255,0.85);pointer-events:none;"></div>';
-            html += pinHtml(s, 'rgb(47,123,255)', 14);
+            html += pinHtml(s, 'rgb(40,220,255)', pinSize);
           }
         }
       }
@@ -1396,15 +1341,26 @@ function vroomkViewerHtml(): string {
       } catch (_) {}
 
       window.addEventListener('pointermove', (event) => {
+        // Measure / Search Image: past drag threshold → look instead of pick.
+        if (pendingToolPointer && event.pointerId === pendingToolPointer.pointerId) {
+          const dx = event.clientX - pendingToolPointer.x;
+          const dy = event.clientY - pendingToolPointer.y;
+          if (!dragLooking && Math.hypot(dx, dy) >= TOOL_DRAG_THRESHOLD_PX) {
+            dragLooking = true;
+            photoClickFlash = null;
+            drawToolOverlay();
+          }
+        }
         if (!walker || !dragLooking) return;
         applyLookFromEvent(event);
       }, true);
 
       window.addEventListener('pointerdown', (event) => {
         if (event.button === 2) {
-          // RMB drag-look while Measure / Photos own LMB clicks.
+          // RMB always drag-look.
           if (event.target === canvas || event.target === document.body) {
             dragLooking = true;
+            pendingToolPointer = null;
             try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
             event.preventDefault();
           }
@@ -1412,43 +1368,20 @@ function vroomkViewerHtml(): string {
         }
         if (event.button !== 0) return;
         if (event.detail > 1) return;
-        if (measureMode) {
+        if (measureMode || pickMode === 'photos') {
+          if (event.target !== canvas && event.target !== document.body) return;
           event.preventDefault();
           event.stopPropagation();
-          void handleMeasureClick(event.clientX, event.clientY);
-          return;
-        }
-        if (pickMode === 'photos') {
-          if (event.target !== canvas) return;
-          event.preventDefault();
-          event.stopPropagation();
-          const req = ++pickRequestId;
-          const cx = event.clientX;
-          const cy = event.clientY;
-          photoClickFlash = { x: cx, y: cy, until: performance.now() + 350 };
-          drawToolOverlay();
-          void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
-            if (!result || req !== pickRequestId || pickMode !== 'photos') return;
-            // Marker stays in SuperSplat world (where the user clicked).
-            photoPickPoint = result.point;
-            placePhotoMarker(viewerHandle.app, result.point);
-            // Hide the temporary screen flash once the surface marker is placed.
-            photoClickFlash = null;
-            drawToolOverlay();
-            kickWalkFrame();
-            // API point must match Mac display/nav frame (custom-orientation aware).
-            const apiPoint = toMacPhotoPoint(
-              viewerHandle.app,
-              result.point,
-              sceneNav
-            );
-            post({
-              type: 'pick',
-              mode: pickMode,
-              point: apiPoint,
-              camera: result.camera
-            });
-          });
+          // Defer pick until pointerup — drag looks around instead of placing a point.
+          pendingToolPointer = {
+            x: event.clientX,
+            y: event.clientY,
+            pointerId: event.pointerId,
+            kind: measureMode ? 'measure' : 'photos'
+          };
+          dragLooking = false;
+          try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
+          try { canvas.focus({ preventScroll: true }); } catch (_) { try { canvas.focus(); } catch (_) {} }
           return;
         }
         // Walk mode: click-drag to look (arrow cursor stays).
@@ -1461,12 +1394,29 @@ function vroomkViewerHtml(): string {
       }, true);
       window.addEventListener('pointerup', (event) => {
         if (event.button === 0 || event.button === 2) {
+          const pending = pendingToolPointer;
+          const wasDragLook = dragLooking;
+          pendingToolPointer = null;
           dragLooking = false;
           try { canvas.style.cursor = 'default'; } catch (_) {}
           try { canvas.releasePointerCapture(event.pointerId); } catch (_) {}
+          // Click (no drag) while Measure / Search Image → place / search.
+          if (
+            event.button === 0 &&
+            pending &&
+            event.pointerId === pending.pointerId &&
+            !wasDragLook
+          ) {
+            if (pending.kind === 'measure' && measureMode) {
+              void handleMeasureClick(pending.x, pending.y);
+            } else if (pending.kind === 'photos' && pickMode === 'photos') {
+              runPhotoPickAt(pending.x, pending.y);
+            }
+          }
         }
       }, true);
       window.addEventListener('pointercancel', () => {
+        pendingToolPointer = null;
         dragLooking = false;
         try { canvas.style.cursor = 'default'; } catch (_) {}
       }, true);
@@ -1475,7 +1425,7 @@ function vroomkViewerHtml(): string {
       }, true);
 
       window.addEventListener('pointermove', (event) => {
-        if (!measureMode || !viewerHandle) return;
+        if (!measureMode || !viewerHandle || dragLooking) return;
         const now = performance.now();
         if (now - lastHoverPick < 40) return;
         lastHoverPick = now;
@@ -1521,11 +1471,7 @@ function vroomkViewerHtml(): string {
         } else if (sprintHud) {
           sprintHud.style.display = 'none';
         }
-        // Keep photo marker screen-size stable while orbiting (SplatClickQuery).
-        if (pickMode === 'photos' && photoMarkerEntity && photoMarkerEntity.enabled) {
-          updatePhotoMarkerScale(viewerHandle.app);
-        }
-        // Reproject HTML pins / click flash whenever a frame runs.
+        // Reproject Measure / Search Image HTML pins whenever a frame runs.
         if (
           measureMode ||
           (pickMode === 'photos' && (photoPickPoint || photoClickFlash))
