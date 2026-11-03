@@ -3,6 +3,9 @@ import SwiftUI
 
 enum Constants {
     static let maxSimultaneousRenders = 3
+    /// Main camera + SuperSplat-style pick pass clip planes (must match `projectionMatrix`).
+    static let pickNearClip: Float = 0.001
+    static let pickFarClip: Float = 500.0
     static let fovy = Angle(degrees: 65)
     /// Starting camera distance in front of the scene origin (looking down -Z).
     static let cameraStartZ: Float = 1.54

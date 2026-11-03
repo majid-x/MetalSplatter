@@ -112,4 +112,5 @@ typedef struct
     float4 position [[position]];
     half2 relativePosition; // Ranges from -kBoundsRadius to +kBoundsRadius
     half4 color;
+    uint pickSeed;          // Per-splat seed for the stochastic pick pass (flat)
 } FragmentIn;

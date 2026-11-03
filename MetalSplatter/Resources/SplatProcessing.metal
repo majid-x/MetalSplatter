@@ -230,6 +230,11 @@ FragmentIn splatVertex(Splat splat,
                           projectedCenter.w);
     out.relativePosition = kBoundsRadius * relativeCoordinates;
 
+    // SuperSplat pickSeedVS: per-splat seed from the projected centre (same across the quad).
+    out.pickSeed = (as_type<uint>(projectedCenter.x) * 0x9e3779b9u)
+                 ^ (as_type<uint>(projectedCenter.y) * 0x85ebca6bu)
+                 ^ (as_type<uint>(projectedCenter.w) * 0xc2b2ae35u);
+
     // Convert from sRGB to linear to match Metal expectations for shader color output
     out.color = half4(sRGBToLinear(srgbColor), splat.color.a);
     return out;

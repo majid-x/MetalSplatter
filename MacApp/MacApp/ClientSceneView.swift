@@ -43,6 +43,10 @@ struct ClientSceneView: View {
     @State private var measureStatus = "Measure off"
     @State private var measureDeleteMode = false
     @State private var measureLabelOverlays: [MetalKitSceneRenderer.MeasureLabelOverlay] = []
+    @State private var measureHoverOverlay: MetalKitSceneRenderer.MeasureHoverScreenOverlay?
+    @State private var measurePreviewLasers: [MetalKitSceneRenderer.MeasureLaserScreenOverlay] = []
+    @State private var measureOverlayScale: CGFloat = 1
+    @State private var measureProjectionViewSize: CGSize = .zero
 
     @State private var hasTopDownCut = false
     @State private var isTopDownActive = false
@@ -131,6 +135,10 @@ struct ClientSceneView: View {
                         measureStatus = rendererBox.renderer?.measureStatus ?? "Measure off"
                         measureDeleteMode = rendererBox.renderer?.measureDeleteMode ?? false
                         measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                        measureHoverOverlay = rendererBox.renderer?.measureHoverOverlay
+                        measurePreviewLasers = rendererBox.renderer?.measureLaserOverlays ?? []
+                        measureOverlayScale = CGFloat(rendererBox.renderer?.measureOverlayScale ?? 1)
+                        measureProjectionViewSize = rendererBox.renderer?.measureProjectionViewSize ?? .zero
                     },
                     onTopDownStateChanged: {
                         hasTopDownCut = rendererBox.renderer?.hasTopDownCut ?? false
@@ -141,6 +149,17 @@ struct ClientSceneView: View {
                     onModelLoadFailed: onModelLoadFailed
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Windows dual-ring cursor + dashed preview; distance labels.
+                MeasurePointerOverlayView(
+                    scale: measureOverlayScale,
+                    projectionViewSize: measureProjectionViewSize,
+                    hover: measureHoverOverlay,
+                    previewLasers: measurePreviewLasers,
+                    labels: measureLabelOverlays,
+                    deleteMode: measureDeleteMode
+                )
+                .allowsHitTesting(false)
 
                 if isTopDownActive {
                     HStack(spacing: 6) {
@@ -168,18 +187,6 @@ struct ClientSceneView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                }
-
-                // Mid-segment distance labels (PlayCanvas measurer text).
-                ForEach(measureLabelOverlays) { label in
-                    Text(label.text)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.2, green: 0.95, blue: 1.0))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.black.opacity(0.55), in: Capsule())
-                        .position(label.viewPoint)
-                        .allowsHitTesting(false)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -245,6 +252,10 @@ struct ClientSceneView: View {
                             measureMode = enabled
                             measureStatus = rendererBox.renderer?.measureStatus ?? measureStatus
                             measureDeleteMode = false
+                            // Pins/labels persist when Measure is off; only drop hover chrome.
+                            measureLabelOverlays = rendererBox.renderer?.measureLabelOverlays ?? []
+                            measureHoverOverlay = rendererBox.renderer?.measureHoverOverlay
+                            measurePreviewLasers = rendererBox.renderer?.measureLaserOverlays ?? []
                         }
 
                         if hasTopDownCut {
@@ -737,6 +748,75 @@ final class ClientRendererBox {
     }
 }
 
+/// Windows mediaServer hover pointer: dual ring at cursor + dashed preview laser.
+private struct MeasurePointerOverlayView: View {
+    let scale: CGFloat
+    let projectionViewSize: CGSize
+    let hover: MetalKitSceneRenderer.MeasureHoverScreenOverlay?
+    let previewLasers: [MetalKitSceneRenderer.MeasureLaserScreenOverlay]
+    let labels: [MetalKitSceneRenderer.MeasureLabelOverlay]
+    let deleteMode: Bool
+
+    private var oscale: CGFloat { max(0.05, min(2, scale > 0 ? scale : 1)) }
+    private var hoverOuter: CGFloat { max(10, 20 * oscale) }
+    private var hoverInner: CGFloat { max(3, 6 * oscale) }
+    private var previewStroke: CGFloat { max(1, 2 * oscale) }
+
+    private let cyan = Color(red: 50 / 255, green: 230 / 255, blue: 1)
+    private let deleteRed = Color(red: 1, green: 90 / 255, blue: 90 / 255)
+
+    private func mapPoint(_ p: CGPoint, in size: CGSize) -> CGPoint {
+        let pw = projectionViewSize.width
+        let ph = projectionViewSize.height
+        guard pw > 1, ph > 1, size.width > 1, size.height > 1 else { return p }
+        return CGPoint(x: p.x * size.width / pw, y: p.y * size.height / ph)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            let ring = deleteMode ? deleteRed : cyan
+            ZStack {
+                Canvas { context, _ in
+                    for laser in previewLasers where laser.preview {
+                        var path = Path()
+                        path.move(to: mapPoint(laser.start, in: size))
+                        path.addLine(to: mapPoint(laser.end, in: size))
+                        context.stroke(
+                            path,
+                            with: .color(cyan.opacity(0.4)),
+                            style: StrokeStyle(lineWidth: previewStroke, dash: [4, 4])
+                        )
+                    }
+                }
+
+                if let hover {
+                    let hp = mapPoint(hover.viewPoint, in: size)
+                    Circle()
+                        .strokeBorder(ring.opacity(0.55), lineWidth: 2)
+                        .frame(width: hoverOuter, height: hoverOuter)
+                        .position(hp)
+                    Circle()
+                        .fill(ring.opacity(0.95))
+                        .frame(width: hoverInner, height: hoverInner)
+                        .position(hp)
+                }
+
+                ForEach(labels) { label in
+                    Text(label.text)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color(red: 51 / 255, green: 242 / 255, blue: 1))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .position(mapPoint(label.viewPoint, in: size))
+                }
+            }
+            .frame(width: size.width, height: size.height)
+        }
+    }
+}
+
 private struct MeasureSubButton: View {
     let title: String
     let systemImage: String
@@ -1021,7 +1101,7 @@ final class ClientCameraControlMTKView: MTKView {
     /// Distinguishes a click (place measure / search point) from a drag-to-look.
     private var toolMouseDownLocation: CGPoint?
     private var didDragLookFromToolClick = false
-    private let toolDragLookThreshold: CGFloat = 4
+    private let toolDragLookThreshold: CGFloat = 6
 
     override var acceptsFirstResponder: Bool { true }
 

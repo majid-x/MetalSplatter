@@ -72,7 +72,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var lastPhotoSearchCamera: SIMD3<Float>?
     private var lastPhotoSearchViewDirection: SIMD3<Float>?
 
-    // MARK: - Measure (PlayCanvas SplatMeasurer: pick pass + hover reticle)
+    // MARK: - Measure (Windows / SuperSplat screen-space chrome + depth pick)
     var measureMode = false
     /// Measure pin snapping is disabled.
     private(set) var measureSnappingEnabled = false
@@ -80,12 +80,25 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     var measureStatus: String = "Measure off"
     /// Screen-space distance labels for SwiftUI overlay.
     private(set) var measureLabelOverlays: [MeasureLabelOverlay] = []
+    /// Windows-style screen pins / lasers / hover (SwiftUI), not world Metal meshes.
+    private(set) var measurePinOverlays: [MeasurePinScreenOverlay] = []
+    private(set) var measureLaserOverlays: [MeasureLaserScreenOverlay] = []
+    private(set) var measureHoverOverlay: MeasureHoverScreenOverlay?
+    /// Search Image screen pin + brief click flash (Windows mediaServer parity).
+    private(set) var photoMarkerOverlay: PhotoMarkerScreenOverlay = PhotoMarkerScreenOverlay(
+        pin: nil,
+        flash: nil
+    )
+    /// MTKView bounds size used when projecting pins — SwiftUI scales chrome to match.
+    private(set) var measureProjectionViewSize: CGSize = .zero
     private var measureNodes: [MeasureNode] = []
     private var measureHoverModelPoint: SIMD3<Float>?
     private var measureDeleteHoverIndex: Int?
-    /// Last cursor in view coords (PlayCanvas keeps mouseX/Y and re-picks every tick).
+    /// Last cursor in view coords (AppKit bottom-left on macOS; UIKit top-left on iOS).
     private var lastMeasureHoverViewPoint: CGPoint?
     private var lastMeasureHoverPickTime: CFTimeInterval = 0
+    private var photoClickFlashViewPoint: CGPoint?
+    private var photoClickFlashUntil: CFTimeInterval = 0
     private var measureOverlayRenderer: MeasureOverlayRenderer?
     var onMeasureStateChanged: (() -> Void)?
     /// Scales Measure pins, lasers, and hover reticle. Loaded from nav.txt `measure_scale`.
@@ -102,7 +115,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     }
 
     struct MeasureNode {
-        /// Model / depth-unprojection space (for Metal draw).
+        /// Model / depth-unprojection space (for picks + projection).
         var modelPosition: SIMD3<Float>
         /// True when this pin opens a new 2-point chain (not linked to previous).
         var isStartOfChain: Bool
@@ -116,34 +129,37 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let text: String
     }
 
+    struct MeasurePinScreenOverlay: Identifiable, Equatable {
+        let id: Int
+        let viewPoint: CGPoint
+        let highlighted: Bool
+    }
+
+    struct MeasureLaserScreenOverlay: Identifiable, Equatable {
+        let id: Int
+        let start: CGPoint
+        let end: CGPoint
+        let preview: Bool
+    }
+
+    struct MeasureHoverScreenOverlay: Equatable {
+        let viewPoint: CGPoint
+    }
+
+    struct PhotoMarkerScreenOverlay: Equatable {
+        let pin: CGPoint?
+        let flash: CGPoint?
+    }
+
     private enum MeasureConstants {
-        static let snapRadius: Float = 0.25
-        static let laserThickness: Float = 0.015
-        static let peripheralAngleDegrees: Float = 60
-        /// PlayCanvas reticleScaleOffset default (cone).
-        static let reticleScale = SIMD3<Float>(0.06, 0.09, 0.06)
-        static let pinSizePerMeter: Float = 0.012
-        static let pinSizeMin: Float = 0.02
-        static let pinSizeMax: Float = 0.5
-        static let pulseSpeed: Float = 3.5
-        static let pulseMin: Float = 0.75
-        static let pulseMax: Float = 1.25
-        /// Hover pick throttle (~50 Hz), same as PlayCanvas.
-        static let hoverPickInterval: CFTimeInterval = 0.02
-        static let pinColor = SIMD4<Float>(0.18, 0.48, 1.0, 0.95)
-        static let laserColor = SIMD4<Float>(0.18, 0.55, 1.0, 0.9)
-        /// PlayCanvas reticle cyan.
-        static let hoverColor = SIMD4<Float>(0.0, 1.0, 1.0, 0.95)
-        static let deleteHoverColor = SIMD4<Float>(1.0, 0.25, 0.25, 0.95)
-        static let previewLaserColor = SIMD4<Float>(0.15, 0.9, 1.0, 0.45)
+        /// Windows mediaServer delete / hover screen radius (px × measure_scale).
+        static let screenHitRadius: CGFloat = 28
+        /// Hover pick throttle (~25 Hz), matching Windows ~40 ms.
+        static let hoverPickInterval: CFTimeInterval = 0.04
+        static let photoFlashDuration: CFTimeInterval = 0.35
         static let overlayScaleMin: Float = 0.05
         static let overlayScaleMax: Float = 2.0
         static let overlayScaleDefault: Float = 1.0
-    }
-
-    /// World-space snap / delete hit radius, scaled with nav `measure_scale`.
-    private var measureSnapRadius: Float {
-        MeasureConstants.snapRadius * measureOverlayScale
     }
 
     /// When true, walk positions are sampled into `recordedCollisionPoints`.
@@ -164,9 +180,9 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private var lastCameraUpdateTimestamp: Date? = nil
     private var lastProjectionMatrix = matrix_identity_float4x4
     private var lastViewMatrix = matrix_identity_float4x4
-    /// PlayCanvas-style pick targets (alpha-clipped splat depth, separate from display depth).
-    private var pickColorTexture: MTLTexture?
-    private var pickDepthTexture: MTLTexture?
+    /// SuperSplat-style stochastic pick target (RGBA16F, 4 survival trials of linear depth).
+    private var pickTexture: MTLTexture?
+    private var pickRenderCache: PickRenderCache?
     private var photoSearchTask: Task<Void, Never>?
     private let photoSearchClient = PhotoSearchClient()
     /// Walkable region from scene package or a finished collision recording.
@@ -300,8 +316,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         lastCameraUpdateTimestamp = nil
         lastPickedCoordinate = nil
         lastPickedModelCoordinate = nil
-        pickColorTexture = nil
-        pickDepthTexture = nil
+        pickTexture = nil
+        pickRenderCache = nil
         searchedPhotos = []
         isPhotoSearching = false
         isFetchingMorePhotos = false
@@ -486,9 +502,13 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
             lastPhotoSearchCamera = nil
             lastPhotoSearchViewDirection = nil
+            photoClickFlashViewPoint = nil
+            photoClickFlashUntil = 0
             pointClickStatus = "Click a surface to find photos"
         } else {
             lastPickedModelCoordinate = nil
+            photoClickFlashViewPoint = nil
+            photoClickFlashUntil = 0
             pointClickStatus = "Search Image off"
             photoSearchTask?.cancel()
             photoSearchTask = nil
@@ -496,6 +516,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             isFetchingMorePhotos = false
             hasMorePhotos = false
         }
+        refreshMeasureScreenChrome()
         onPointClickStateChanged?()
     }
 
@@ -512,12 +533,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureDeleteHoverIndex = nil
         lastMeasureHoverViewPoint = nil
         lastMeasureHoverPickTime = 0
+        measureHoverOverlay = nil
         if enabled {
             measureStatus = "Measure on · click two points"
         } else {
-            measureStatus = measureNodes.isEmpty ? "Measure off" : "Measure off · \(measureNodes.count) points kept"
+            // Keep placed pins/distances; Delete All clears. Drop hover/reticle only.
+            measureStatus = measureNodes.isEmpty
+                ? "Measure off"
+                : String(format: "Measure off · %d points kept", measureNodes.count)
         }
-        refreshMeasureLabels()
+        refreshMeasureScreenChrome()
         onMeasureStateChanged?()
         onPointClickStateChanged?()
     }
@@ -547,7 +572,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         } else {
             measureStatus = String(format: "Undid point · %d left", measureNodes.count)
         }
-        refreshMeasureLabels()
+        refreshMeasureScreenChrome()
         onMeasureStateChanged?()
         return true
     }
@@ -558,16 +583,22 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         measureDeleteHoverIndex = nil
         lastMeasureHoverViewPoint = nil
         measureLabelOverlays = []
+        measurePinOverlays = []
+        measureLaserOverlays = []
+        measureHoverOverlay = nil
         measureDeleteMode = false
         measureStatus = measureMode ? "Cleared · Measure on · click two points" : "Measure off"
+        refreshMeasureScreenChrome()
         onMeasureStateChanged?()
     }
 
-    /// PlayCanvas hover tracking — uses the same alpha-clipped pick pass as click.
+    /// Windows-style hover — cursor ring always tracks the pointer; depth pick for preview laser.
     func updateMeasureHover(at viewPoint: CGPoint) {
         guard measureMode else { return }
         lastMeasureHoverViewPoint = viewPoint
         pickMeasureHover(at: viewPoint, force: false)
+        refreshMeasureScreenChrome()
+        onMeasureStateChanged?()
     }
 
     private func pickMeasureHover(at viewPoint: CGPoint, force: Bool) {
@@ -576,39 +607,33 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if !force, now - lastMeasureHoverPickTime < MeasureConstants.hoverPickInterval { return }
         lastMeasureHoverPickTime = now
 
-        guard let modelPoint = worldPosition(at: viewPoint) else {
-            measureHoverModelPoint = nil
-            measureDeleteHoverIndex = nil
-            return
-        }
-
         if measureDeleteMode {
-            measureDeleteHoverIndex = nearestMeasureNodeIndex(to: modelPoint, radius: measureSnapRadius)
+            measureDeleteHoverIndex = nearestMeasureNodeIndex(
+                atViewPoint: viewPoint,
+                screenRadius: MeasureConstants.screenHitRadius
+            )
             measureHoverModelPoint = measureDeleteHoverIndex.map { measureNodes[$0].modelPosition }
             return
         }
 
-        measureHoverModelPoint = modelPoint
         measureDeleteHoverIndex = nil
+        measureHoverModelPoint = worldPosition(at: viewPoint)
     }
 
     func handleMeasureClick(at viewPoint: CGPoint) {
         guard measureMode else { return }
 
-        // Same alpha-clipped pick pass as Point Click / hover.
-        guard let modelPoint = worldPosition(at: viewPoint) else {
-            measureStatus = "No surface at click"
-            onMeasureStateChanged?()
-            return
-        }
-
         if measureDeleteMode {
             if let index = measureDeleteHoverIndex
-                ?? nearestMeasureNodeIndex(to: modelPoint, radius: measureSnapRadius) {
+                ?? nearestMeasureNodeIndex(
+                    atViewPoint: viewPoint,
+                    screenRadius: MeasureConstants.screenHitRadius
+                ) {
                 deleteMeasureNode(at: index)
                 measureDeleteMode = false
                 measureDeleteHoverIndex = nil
                 measureStatus = "Deleted pin · Measure on"
+                refreshMeasureScreenChrome()
                 onMeasureStateChanged?()
             } else {
                 measureStatus = "No pin near click"
@@ -617,16 +642,22 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
             return
         }
 
+        // Same alpha-clipped pick pass as Point Click / hover.
+        guard let modelPoint = worldPosition(at: viewPoint) else {
+            measureStatus = "No surface at click"
+            onMeasureStateChanged?()
+            return
+        }
+
         addMeasurePoint(modelPoint)
     }
 
     private func addMeasurePoint(_ modelPoint: SIMD3<Float>) {
-        // Fixed 2-click chains: open start → complete segment → next click starts a new chain.
+        // Fixed 2-click chains (Windows): open start → complete segment → next click starts a new chain.
+        // No FOV gate — Mac previously refused links outside 60°.
         let isStart: Bool
         var distance: Float?
-        if let previous = measureNodes.last,
-           previous.isStartOfChain,
-           canLink(toPrevious: previous.modelPosition) {
+        if let previous = measureNodes.last, previous.isStartOfChain {
             isStart = false
             distance = simd_distance(previous.modelPosition, modelPoint) * measureCalibrationFactor
         } else {
@@ -644,7 +675,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         } else {
             measureStatus = String(format: "Point placed · click second point · %d points", measureNodes.count)
         }
-        refreshMeasureLabels()
+        refreshMeasureScreenChrome()
         onMeasureStateChanged?()
     }
 
@@ -652,7 +683,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         guard measureNodes.indices.contains(index) else { return }
         measureNodes.remove(at: index)
         rebuildMeasureChainDistances()
-        refreshMeasureLabels()
+        refreshMeasureScreenChrome()
     }
 
     private func rebuildMeasureChainDistances() {
@@ -676,21 +707,15 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    private func canLink(toPrevious previousModel: SIMD3<Float>) -> Bool {
-        let previousWorld = usesCustomOrientation ? previousModel : SplatNavigationSpace.fromModel(previousModel)
-        let toPrev = previousWorld - cameraPosition
-        let len = simd_length(toPrev)
-        guard len > 1e-5 else { return true }
-        let dir = toPrev / len
-        let cosLimit = cos(MeasureConstants.peripheralAngleDegrees * .pi / 180)
-        return simd_dot(cameraForward, dir) >= cosLimit
-    }
-
-    private func nearestMeasureNodeIndex(to modelPoint: SIMD3<Float>, radius: Float) -> Int? {
+    /// Windows: delete hit-test in screen px (`28 * measure_scale`), not world meters.
+    private func nearestMeasureNodeIndex(atViewPoint viewPoint: CGPoint, screenRadius: CGFloat) -> Int? {
+        let cursor = viewPointInSwiftUISpace(viewPoint)
+        let radius = screenRadius * CGFloat(measureOverlayScale)
         var bestIndex: Int?
         var bestDistance = radius
         for (index, node) in measureNodes.enumerated() {
-            let d = simd_distance(node.modelPosition, modelPoint)
+            guard let screen = projectModelPointToView(node.modelPosition) else { continue }
+            let d = hypot(screen.x - cursor.x, screen.y - cursor.y)
             if d <= bestDistance {
                 bestDistance = d
                 bestIndex = index
@@ -699,25 +724,60 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         return bestIndex
     }
 
-    private func refreshMeasureLabels() {
-        var overlays: [MeasureLabelOverlay] = []
-        guard measureNodes.count >= 2 else {
-            measureLabelOverlays = []
-            return
+    /// Convert MTKView click/hover coords into SwiftUI `.position` space (top-left origin).
+    private func viewPointInSwiftUISpace(_ viewPoint: CGPoint) -> CGPoint {
+#if os(macOS)
+        return CGPoint(x: viewPoint.x, y: metalKitView.bounds.height - viewPoint.y)
+#else
+        return viewPoint
+#endif
+    }
+
+    /// Refresh SwiftUI labels + Windows-style cursor pointer (dual ring + dashed preview).
+    private func refreshMeasureScreenChrome() {
+        var labels: [MeasureLabelOverlay] = []
+        var lasers: [MeasureLaserScreenOverlay] = []
+        measureProjectionViewSize = metalKitView.bounds.size
+
+        // Distance labels stay visible after leaving Measure (pins stay in Metal).
+        if measureNodes.count >= 2 {
+            for i in 1..<measureNodes.count {
+                let node = measureNodes[i]
+                guard !node.isStartOfChain, let distance = node.distanceToPrevious else { continue }
+                let prev = measureNodes[i - 1].modelPosition
+                let mid = (prev + node.modelPosition) * 0.5
+                guard let screen = projectModelPointToView(mid) else { continue }
+                labels.append(MeasureLabelOverlay(
+                    id: i,
+                    viewPoint: screen,
+                    text: Self.formatMeasureDistance(meters: distance)
+                ))
+            }
         }
-        for i in 1..<measureNodes.count {
-            let node = measureNodes[i]
-            guard !node.isStartOfChain, let distance = node.distanceToPrevious else { continue }
-            let prev = measureNodes[i - 1].modelPosition
-            let mid = (prev + node.modelPosition) * 0.5
-            guard let screen = projectModelPointToView(mid) else { continue }
-            overlays.append(MeasureLabelOverlay(
-                id: i,
-                viewPoint: screen,
-                text: Self.formatMeasureDistance(meters: distance)
-            ))
+
+        // Windows: dual-ring always tracks the cursor (even if surface pick misses).
+        if measureMode, let hoverView = lastMeasureHoverViewPoint {
+            let hoverScreen = viewPointInSwiftUISpace(hoverView)
+            measureHoverOverlay = MeasureHoverScreenOverlay(viewPoint: hoverScreen)
+            if !measureDeleteMode,
+               let last = measureNodes.last,
+               last.isStartOfChain,
+               let a = projectModelPointToView(last.modelPosition) {
+                lasers.append(MeasureLaserScreenOverlay(
+                    id: -1,
+                    start: a,
+                    end: hoverScreen,
+                    preview: true
+                ))
+            }
+        } else {
+            measureHoverOverlay = nil
         }
-        measureLabelOverlays = overlays
+
+        measureLabelOverlays = labels
+        measureLaserOverlays = lasers
+        measurePinOverlays = []
+        photoMarkerOverlay = PhotoMarkerScreenOverlay(pin: nil, flash: nil)
     }
 
     /// Imperial distance: `feet' inches fraction"`.
@@ -763,100 +823,18 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
     private func projectModelPointToView(_ modelPoint: SIMD3<Float>) -> CGPoint? {
         guard drawableSize.width > 1, drawableSize.height > 1 else { return nil }
         let clip = lastProjectionMatrix * lastViewMatrix * SIMD4(modelPoint.x, modelPoint.y, modelPoint.z, 1)
-        guard abs(clip.w) > 1e-6 else { return nil }
+        // Windows `worldToScreen`: view-space z >= 0 is behind the camera → hide.
+        guard clip.w > Constants.pickNearClip else { return nil }
         let ndc = clip.xyz / clip.w
-        // Behind / far outside the clip volume — hide label.
-        guard ndc.z >= -0.05, ndc.z <= 1.05 else { return nil }
         let bounds = metalKitView.bounds
         guard bounds.width > 1, bounds.height > 1 else { return nil }
+        measureProjectionViewSize = bounds.size
         let x = CGFloat((ndc.x + 1) * 0.5) * bounds.width
         // SwiftUI `.position` uses top-left origin on every platform (not AppKit bottom-left).
         let y = CGFloat((1 - ndc.y) * 0.5) * bounds.height
         return CGPoint(x: x, y: y)
     }
 
-    private func drawMeasureOverlay(
-        viewProjection: matrix_float4x4,
-        colorTexture: MTLTexture,
-        depthTexture: MTLTexture?,
-        commandBuffer: MTLCommandBuffer
-    ) {
-        guard let overlay = measureOverlayRenderer else { return }
-        let scale = measureOverlayScale
-
-        // Same distance-scaled blue dots as Point Click.
-        let eyeModel = (lastViewMatrix.inverse * SIMD4<Float>(0, 0, 0, 1)).xyz
-        for pin in measureNodes.map(\.modelPosition) {
-            let distance = max(0.35, simd_length(pin - eyeModel))
-            let size = min(
-                MeasureConstants.pinSizeMax * scale,
-                max(MeasureConstants.pinSizeMin * scale, distance * MeasureConstants.pinSizePerMeter * scale)
-            )
-            overlay.drawPins(
-                atModelPositions: [pin],
-                diameter: size,
-                color: MeasureConstants.pinColor,
-                viewProjection: viewProjection,
-                colorTexture: colorTexture,
-                depthTexture: depthTexture,
-                to: commandBuffer
-            )
-        }
-
-        var segments: [(SIMD3<Float>, SIMD3<Float>)] = []
-        if measureNodes.count >= 2 {
-            for i in 1..<measureNodes.count {
-                let node = measureNodes[i]
-                guard !node.isStartOfChain else { continue }
-                segments.append((measureNodes[i - 1].modelPosition, node.modelPosition))
-            }
-        }
-        if !segments.isEmpty {
-            overlay.drawSegments(
-                segments: segments,
-                thickness: MeasureConstants.laserThickness * scale,
-                color: MeasureConstants.laserColor,
-                viewProjection: viewProjection,
-                colorTexture: colorTexture,
-                depthTexture: depthTexture,
-                to: commandBuffer
-            )
-        }
-
-        // PlayCanvas hover cone + preview laser (pick-pass position).
-        if measureMode, let hover = measureHoverModelPoint {
-            let hoverColor = measureDeleteMode ? MeasureConstants.deleteHoverColor : MeasureConstants.hoverColor
-            let t = Float(CACurrentMediaTime())
-            let sinWave = sin(t * MeasureConstants.pulseSpeed)
-            let pulse = MeasureConstants.pulseMin
-                + (MeasureConstants.pulseMax - MeasureConstants.pulseMin) * (sinWave + 1) * 0.5
-            overlay.drawReticle(
-                atModelPosition: hover,
-                scale: MeasureConstants.reticleScale * scale,
-                pulse: measureDeleteMode ? 1.2 : pulse,
-                color: hoverColor,
-                viewProjection: viewProjection,
-                colorTexture: colorTexture,
-                depthTexture: depthTexture,
-                to: commandBuffer
-            )
-
-            if !measureDeleteMode,
-               let last = measureNodes.last,
-               last.isStartOfChain,
-               canLink(toPrevious: last.modelPosition) {
-                overlay.drawSegments(
-                    segments: [(last.modelPosition, hover)],
-                    thickness: MeasureConstants.laserThickness * 0.85 * scale,
-                    color: MeasureConstants.previewLaserColor,
-                    viewProjection: viewProjection,
-                    colorTexture: colorTexture,
-                    depthTexture: depthTexture,
-                    to: commandBuffer
-                )
-            }
-        }
-    }
 
     /// Apply FPS-style look from a mouse / finger delta in points.
     func applyLookDelta(deltaX: CGFloat, deltaY: CGFloat) {
@@ -1184,12 +1162,16 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         let world = usesCustomOrientation ? modelPoint : SplatNavigationSpace.fromModel(modelPoint)
         lastPickedModelCoordinate = modelPoint
         lastPickedCoordinate = world
+        // Windows: brief screen flash at click, then a reprojected world pin.
+        photoClickFlashViewPoint = viewPointInSwiftUISpace(viewPoint)
+        photoClickFlashUntil = CACurrentMediaTime() + MeasureConstants.photoFlashDuration
         pointClickStatus = String(format: "X: %.3f   Y: %.3f   Z: %.3f · searching…", world.x, world.y, world.z)
         searchedPhotos = []
         isPhotoSearching = true
         isFetchingMorePhotos = false
         hasMorePhotos = false
         photoSearchMaxResults = PhotoSearchAPI.defaultMaxResults
+        refreshMeasureScreenChrome()
         onPointClickStateChanged?()
 
         let camera = cameraPosition
@@ -1331,8 +1313,8 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         matrix_perspective_right_hand(fovyRadians: Float(Constants.fovy.radians),
                                       aspectRatio: Float(drawableSize.width / max(drawableSize.height, 1)),
                                       // Match SampleApp — perspective near must be > 0.
-                                      nearZ: 0.001,
-                                      farZ: 500.0)
+                                      nearZ: Constants.pickNearClip,
+                                      farZ: Constants.pickFarClip)
     }
 
     private var viewport: ModelRendererViewportDescriptor {
@@ -1451,172 +1433,311 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    private func ensurePickTargets(width: Int, height: Int) -> (color: MTLTexture, depth: MTLTexture)? {
-        guard width > 0, height > 0 else { return nil }
-        if let color = pickColorTexture, let depth = pickDepthTexture,
-           color.width == width, color.height == height,
-           depth.width == width, depth.height == height {
-            return (color, depth)
-        }
+    // MARK: - SuperSplat `Picker.pickSurface` parity
 
-        let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .r8Unorm,
-            width: width,
-            height: height,
-            mipmapped: false
-        )
-        colorDesc.usage = [.renderTarget]
-        colorDesc.storageMode = .private
-
-        let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .depth32Float,
-            width: width,
-            height: height,
-            mipmapped: false
-        )
-        depthDesc.usage = [.renderTarget]
-        depthDesc.storageMode = .private
-
-        guard let color = device.makeTexture(descriptor: colorDesc),
-              let depth = device.makeTexture(descriptor: depthDesc) else {
-            return nil
-        }
-        color.label = "Pick Color"
-        depth.label = "Pick Depth"
-        pickColorTexture = color
-        pickDepthTexture = depth
-        return (color, depth)
+    /// Constants from SuperSplat viewer `index.js` (Picker).
+    private enum SurfacePick {
+        /// `SURFACE_RADIUS_PX` — depth is taken over a disc of this radius (pick-target pixels).
+        static let radiusPx = 2
+        /// `SURFACE_OPACITY` — surface is where opacity in front first reaches this.
+        static let opacity = 0.3
+        /// `PICK_TRIALS` — independent survival trials (RGBA channels).
+        static let trials = 4
     }
 
-    /// Depth-unproject a view click using a PlayCanvas-style alpha-clipped pick pass
-    /// (`SplatRenderer.renderPickDepth`), not the soft display depth buffer.
+    /// Cached pick render, keyed like SuperSplat `cameraMatches` (view, projection, size).
+    private struct PickRenderCache {
+        var viewMatrix: matrix_float4x4
+        var projectionMatrix: matrix_float4x4
+        var width: Int
+        var height: Int
+        var clipKey: Float?
+    }
+
+    private func ensureStochasticPickTexture(width: Int, height: Int) -> MTLTexture? {
+        guard width > 0, height > 0 else { return nil }
+        if let texture = pickTexture, texture.width == width, texture.height == height {
+            return texture
+        }
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        desc.usage = [.renderTarget]
+        desc.storageMode = .private
+        guard let texture = device.makeTexture(descriptor: desc) else { return nil }
+        texture.label = "Stochastic Pick"
+        pickTexture = texture
+        pickRenderCache = nil
+        return texture
+    }
+
+    /// IEEE half → float (the pick render is RGBA16F, like SuperSplat's `half2Float`).
+    private static func halfToFloat(_ h: UInt16) -> Float {
+        let sign = UInt32(h & 0x8000) << 16
+        let exponent = UInt32((h & 0x7c00) >> 10)
+        var mantissa = UInt32(h & 0x03ff)
+        var bits: UInt32
+        if exponent == 0 {
+            if mantissa == 0 {
+                bits = sign
+            } else {
+                var e: UInt32 = 0
+                while (mantissa & 0x0400) == 0 {
+                    mantissa <<= 1
+                    e += 1
+                }
+                mantissa &= 0x03ff
+                bits = sign | ((127 - 15 + 1 - e) << 23) | (mantissa << 13)
+            }
+        } else if exponent == 31 {
+            bits = sign | 0x7f80_0000 | (mantissa << 13)
+        } else {
+            bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13)
+        }
+        return Float(bitPattern: bits)
+    }
+
+    /// Exact port of SuperSplat `Picker.pickSurface` position (disc search + opacity-quantile depth +
+    /// unproject through the click pixel). `viewPoint` is in MTKView coordinates.
+    ///
+    /// Windows `pickWorldPoint` stores this point and reprojects it every frame; so does Mac.
     private func worldPosition(at viewPoint: CGPoint) -> SIMD3<Float>? {
         guard drawableSize.width > 0, drawableSize.height > 0 else { return nil }
-        guard metalKitView.bounds.width > 0, metalKitView.bounds.height > 0 else { return nil }
+        let bounds = metalKitView.bounds.size
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
         guard let splatRenderer = modelRenderer as? SplatRenderer else { return nil }
 
-        let width = Int(drawableSize.width.rounded())
-        let height = Int(drawableSize.height.rounded())
-        guard let targets = ensurePickTargets(width: width, height: height) else { return nil }
+        // `pickTargetSize`: one pick pixel per CSS (point) pixel, never more than the backbuffer.
+        let width = max(1, min(Int(drawableSize.width.rounded(.down)), Int(bounds.width.rounded())))
+        let height = max(1, min(Int(drawableSize.height.rounded(.down)), Int(bounds.height.rounded())))
 
-        let mtlViewport = MTLViewport(
-            originX: 0, originY: 0,
-            width: Double(width), height: Double(height),
-            znear: 0, zfar: 1
-        )
-        let pickViewport = SplatRenderer.ViewportDescriptor(
-            viewport: mtlViewport,
-            projectionMatrix: lastProjectionMatrix,
-            viewMatrix: lastViewMatrix,
-            screenSize: SIMD2(width, height)
-        )
-
-        guard let pickBuffer = commandQueue.makeCommandBuffer() else { return nil }
-        do {
-            let ok = try splatRenderer.renderPickDepth(
-                viewports: [pickViewport],
-                colorTexture: targets.color,
-                depthTexture: targets.depth,
-                to: pickBuffer
-            )
-            guard ok else { return nil }
-        } catch {
-            Self.log.error("Pick depth render failed: \(error.localizedDescription)")
-            return nil
-        }
-        pickBuffer.commit()
-        pickBuffer.waitUntilCompleted()
-
-        let scaleX = drawableSize.width / metalKitView.bounds.width
-        let scaleY = drawableSize.height / metalKitView.bounds.height
-
+        // Normalised click, top-left origin (Windows nx / ny).
+        let nx = Double(viewPoint.x / bounds.width)
 #if os(macOS)
-        let pixelX = Int((viewPoint.x * scaleX).rounded(.down))
-        let pixelY = Int(((metalKitView.bounds.height - viewPoint.y) * scaleY).rounded(.down))
+        let ny = Double(1 - viewPoint.y / bounds.height)
 #else
-        let pixelX = Int((viewPoint.x * scaleX).rounded(.down))
-        let pixelY = Int((viewPoint.y * scaleY).rounded(.down))
+        let ny = Double(viewPoint.y / bounds.height)
 #endif
+        guard nx >= 0, nx <= 1, ny >= 0, ny <= 1 else { return nil }
+        // `clampPixel`
+        let screenX = min(width - 1, max(0, Int((nx * Double(width)).rounded(.down))))
+        let screenY = min(height - 1, max(0, Int((ny * Double(height)).rounded(.down))))
 
-        let depthTexture = targets.depth
-        let maxX = max(depthTexture.width - 1, 0)
-        let maxY = max(depthTexture.height - 1, 0)
-        guard pixelX >= 0, pixelY >= 0, pixelX <= maxX, pixelY <= maxY else { return nil }
+        let proj = projectionMatrix
+        let view = viewMatrix
+        let near = Constants.pickNearClip
+        let far = Constants.pickFarClip
 
-        // Search a small screen-space neighborhood; prefer the click pixel, else nearest hit.
-        let radius = 12
-        let x0 = max(pixelX - radius, 0)
-        let y0 = max(pixelY - radius, 0)
-        let x1 = min(pixelX + radius, maxX)
-        let y1 = min(pixelY + radius, maxY)
-        let regionW = x1 - x0 + 1
-        let regionH = y1 - y0 + 1
-        let sampleCount = regionW * regionH
-        let bytesPerSample = MemoryLayout<Float>.size
-        let bytesPerRow = bytesPerSample * regionW
-        guard let sampleBuffer = device.makeBuffer(
-            length: bytesPerRow * regionH,
-            options: .storageModeShared
-        ) else {
-            return nil
+        guard let texture = ensureStochasticPickTexture(width: width, height: height) else { return nil }
+
+        let clipKey: Float? = isTopDownActive ? topDownCutHeight : nil
+        let cacheHit: Bool = {
+            guard let cache = pickRenderCache, proceduralSplatController == nil else { return false }
+            return cache.width == width && cache.height == height
+                && cache.clipKey == clipKey
+                && simd_equal(cache.viewMatrix, view)
+                && simd_equal(cache.projectionMatrix, proj)
+        }()
+
+        if !cacheHit {
+            pickRenderCache = nil
+            let pickViewport = SplatRenderer.ViewportDescriptor(
+                viewport: MTLViewport(originX: 0, originY: 0,
+                                      width: Double(width), height: Double(height),
+                                      znear: 0, zfar: 1),
+                projectionMatrix: proj,
+                viewMatrix: view,
+                screenSize: SIMD2(width, height)
+            )
+            guard let pickBuffer = commandQueue.makeCommandBuffer() else { return nil }
+            do {
+                let ok = try splatRenderer.renderStochasticPick(
+                    viewports: [pickViewport],
+                    colorTexture: texture,
+                    nearClip: near,
+                    farClip: far,
+                    to: pickBuffer
+                )
+                guard ok else { return nil }
+            } catch {
+                Self.log.error("Stochastic pick render failed: \(error.localizedDescription)")
+                return nil
+            }
+            pickBuffer.commit()
+            pickBuffer.waitUntilCompleted()
+            pickRenderCache = PickRenderCache(
+                viewMatrix: view,
+                projectionMatrix: proj,
+                width: width,
+                height: height,
+                clipKey: clipKey
+            )
         }
 
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+        // `readAround(screenX, screenY, SURFACE_RADIUS_PX)` clamped to the render.
+        let margin = SurfacePick.radiusPx
+        let blockX = max(0, screenX - margin)
+        let blockY = max(0, screenY - margin)
+        let blockW = min(width - 1, screenX + margin) - blockX + 1
+        let blockH = min(height - 1, screenY + margin) - blockY + 1
+        guard blockW > 0, blockH > 0 else { return nil }
+
+        let bytesPerPixel = 8 // RGBA16F
+        let bytesPerRow = blockW * bytesPerPixel
+        guard let sampleBuffer = device.makeBuffer(length: bytesPerRow * blockH, options: .storageModeShared),
+              let commandBuffer = commandQueue.makeCommandBuffer(),
               let blit = commandBuffer.makeBlitCommandEncoder() else {
             return nil
         }
         blit.copy(
-            from: depthTexture,
+            from: texture,
             sourceSlice: 0,
             sourceLevel: 0,
-            sourceOrigin: MTLOrigin(x: x0, y: y0, z: 0),
-            sourceSize: MTLSize(width: regionW, height: regionH, depth: 1),
+            sourceOrigin: MTLOrigin(x: blockX, y: blockY, z: 0),
+            sourceSize: MTLSize(width: blockW, height: blockH, depth: 1),
             to: sampleBuffer,
             destinationOffset: 0,
             destinationBytesPerRow: bytesPerRow,
-            destinationBytesPerImage: bytesPerRow * regionH
+            destinationBytesPerImage: bytesPerRow * blockH
         )
         blit.endEncoding()
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
 
-        let depths = sampleBuffer.contents().bindMemory(to: Float.self, capacity: sampleCount)
-        // Prefer closest screen-space hit; ties break toward nearer camera depth.
-        var bestX = pixelX
-        var bestY = pixelY
-        var bestScreenDist2 = Int.max
-        var bestDepth: Float = .greatestFiniteMagnitude
-        var found = false
-        for row in 0..<regionH {
-            for col in 0..<regionW {
-                let d = depths[row * regionW + col]
-                guard d.isFinite, d > 1e-5, d < 1.0 - 1e-5 else { continue }
-                let sx = x0 + col
-                let sy = y0 + row
-                let dx = sx - pixelX
-                let dy = sy - pixelY
-                let screenDist2 = dx * dx + dy * dy
-                if screenDist2 < bestScreenDist2
-                    || (screenDist2 == bestScreenDist2 && d < bestDepth) {
-                    bestScreenDist2 = screenDist2
-                    bestDepth = d
-                    bestX = sx
-                    bestY = sy
-                    found = true
+        let halves = sampleBuffer.contents().bindMemory(to: UInt16.self, capacity: blockW * blockH * 4)
+        func depthAt(_ x: Int, _ y: Int, _ trial: Int) -> Float? {
+            let localX = x - blockX
+            let localY = y - blockY
+            guard localX >= 0, localX < blockW, localY >= 0, localY < blockH else { return nil }
+            return Self.halfToFloat(halves[(localY * blockW + localX) * 4 + trial])
+        }
+
+        // `surfaceDepth`: SURFACE_OPACITY quantile of the nearest survivors over a disc.
+        var samples: [Float] = []
+        samples.reserveCapacity(13 * SurfacePick.trials)
+        let r = SurfacePick.radiusPx
+        for dy in -r...r {
+            for dx in -r...r {
+                if dx * dx + dy * dy > r * r { continue }
+                for trial in 0..<SurfacePick.trials {
+                    if let depth = depthAt(screenX + dx, screenY + dy, trial) {
+                        samples.append(depth)
+                    }
                 }
             }
         }
-        guard found else { return nil }
+        guard !samples.isEmpty else { return nil }
+        samples.sort()
+        // SuperSplat: `samples[Math.max(0, Math.ceil(n * SURFACE_OPACITY) - 1)]`
+        let index = max(0, Int((Double(samples.count) * SurfacePick.opacity).rounded(.up)) - 1)
+        let normalizedDepth = samples[index]
+        guard normalizedDepth.isFinite, normalizedDepth < 1, normalizedDepth >= 0 else { return nil }
 
-        let ndcX = (2.0 * Float(bestX) + 1.0) / Float(width) - 1.0
-        let ndcY = 1.0 - (2.0 * Float(bestY) + 1.0) / Float(height)
-        let clip = SIMD4<Float>(ndcX, ndcY, bestDepth, 1)
-        let invViewProjection = (lastProjectionMatrix * lastViewMatrix).inverse
-        let worldHomogeneous = invViewProjection * clip
-        guard abs(worldHomogeneous.w) > 1e-6 else { return nil }
-        let world = worldHomogeneous.xyz / worldHomogeneous.w
-        guard world.x.isFinite, world.y.isFinite, world.z.isFinite else { return nil }
-        return world
+        // Exact SuperSplat `getWorldPoint` (perspective), Metal NDC z in [0,1] (WebGL uses *2-1).
+        let ndcZ = (far * normalizedDepth) / (normalizedDepth * (far - near) + near)
+        guard ndcZ.isFinite, ndcZ >= 0, ndcZ <= 1 else { return nil }
+        let clip = SIMD4<Float>(
+            Float(screenX) / Float(width) * 2 - 1,
+            (1 - Float(screenY) / Float(height)) * 2 - 1,
+            ndcZ,
+            1
+        )
+        let invViewProj = (proj * view).inverse
+        let worldH = invViewProj * clip
+        guard worldH.w.isFinite, abs(worldH.w) > 1e-8 else { return nil }
+        let point = worldH.xyz / worldH.w
+        guard point.x.isFinite, point.y.isFinite, point.z.isFinite else { return nil }
+        return point
+    }
+
+    // MARK: - World-space measure chrome (same 3D points as Windows; drawn in-frame like the splat)
+
+    private enum MeasureDraw {
+        static let pinSizePerMeter: Float = 0.012
+        static let pinSizeMin: Float = 0.02
+        static let pinSizeMax: Float = 0.5
+        static let laserThickness: Float = 0.015
+        static let reticleScale = SIMD3<Float>(0.06, 0.09, 0.06)
+        /// Windows pin cyan rgb(40,220,255)
+        static let pinColor = SIMD4<Float>(40 / 255, 220 / 255, 1, 0.95)
+        static let laserColor = SIMD4<Float>(50 / 255, 230 / 255, 1, 0.95)
+        static let previewLaserColor = SIMD4<Float>(50 / 255, 230 / 255, 1, 0.4)
+        static let hoverColor = SIMD4<Float>(40 / 255, 220 / 255, 1, 0.95)
+        static let deleteHoverColor = SIMD4<Float>(1, 90 / 255, 90 / 255, 0.95)
+    }
+
+    private func drawMeasureOverlay(
+        viewProjection: matrix_float4x4,
+        colorTexture: MTLTexture,
+        depthTexture: MTLTexture?,
+        commandBuffer: MTLCommandBuffer
+    ) {
+        guard let overlay = measureOverlayRenderer else { return }
+        let scale = measureOverlayScale
+        let eyeModel = (lastViewMatrix.inverse * SIMD4<Float>(0, 0, 0, 1)).xyz
+
+        if measureMode || !measureNodes.isEmpty {
+            for (index, node) in measureNodes.enumerated() {
+                let pin = node.modelPosition
+                let distance = max(0.35, simd_length(pin - eyeModel))
+                let size = min(
+                    MeasureDraw.pinSizeMax * scale,
+                    max(MeasureDraw.pinSizeMin * scale, distance * MeasureDraw.pinSizePerMeter * scale)
+                )
+                let highlighted = measureMode && measureDeleteMode && measureDeleteHoverIndex == index
+                overlay.drawPins(
+                    atModelPositions: [pin],
+                    diameter: size,
+                    color: highlighted ? MeasureDraw.deleteHoverColor : MeasureDraw.pinColor,
+                    viewProjection: viewProjection,
+                    colorTexture: colorTexture,
+                    depthTexture: depthTexture,
+                    to: commandBuffer
+                )
+            }
+
+            var segments: [(SIMD3<Float>, SIMD3<Float>)] = []
+            if measureNodes.count >= 2 {
+                for i in 1..<measureNodes.count {
+                    let node = measureNodes[i]
+                    guard !node.isStartOfChain else { continue }
+                    segments.append((measureNodes[i - 1].modelPosition, node.modelPosition))
+                }
+            }
+            if !segments.isEmpty {
+                overlay.drawSegments(
+                    segments: segments,
+                    thickness: MeasureDraw.laserThickness * scale,
+                    color: MeasureDraw.laserColor,
+                    viewProjection: viewProjection,
+                    colorTexture: colorTexture,
+                    depthTexture: depthTexture,
+                    to: commandBuffer
+                )
+            }
+        }
+
+        // Hover pointer is SwiftUI dual-ring (Windows mediaServer), not the Metal cone.
+
+        if pointClickMode, let marker = lastPickedModelCoordinate {
+            let distance = max(0.35, simd_length(marker - eyeModel))
+            let size = min(
+                MeasureDraw.pinSizeMax * scale,
+                max(MeasureDraw.pinSizeMin * scale, distance * MeasureDraw.pinSizePerMeter * scale)
+            )
+            overlay.drawPins(
+                atModelPositions: [marker],
+                diameter: size,
+                color: SIMD4<Float>(47 / 255, 123 / 255, 1, 0.95),
+                viewProjection: viewProjection,
+                colorTexture: colorTexture,
+                depthTexture: depthTexture,
+                to: commandBuffer
+            )
+        }
     }
 
     func draw(in view: MTKView) {
@@ -1647,8 +1768,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         lastProjectionMatrix = projectionMatrix
         lastViewMatrix = viewMatrix
 
-        // Re-pick under the stored cursor so the cone tracks while walking
-        // (PlayCanvas updateTrackingPreviews ~50 Hz with mouseX/Y).
+        // Re-pick under the stored cursor while walking (Windows hover throttle).
         if measureMode, let hoverPoint = lastMeasureHoverViewPoint {
             pickMeasureHover(at: hoverPoint, force: false)
         }
@@ -1670,42 +1790,26 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         if didRender {
             let colorTexture = view.multisampleColorTexture ?? drawable.texture
             let viewProjection = lastProjectionMatrix * lastViewMatrix
-            // Keep pins/lasers after exiting measure mode (PlayCanvas persistInNormalMode).
-            if !measureNodes.isEmpty || measureMode {
+            // Draw pins/lasers in the same Metal frame as the splat (Windows stickiness).
+            // 3D points come from SuperSplat pickSurface-equivalent; distances match Windows.
+            if measureMode || !measureNodes.isEmpty || (pointClickMode && lastPickedModelCoordinate != nil) {
                 drawMeasureOverlay(
                     viewProjection: viewProjection,
                     colorTexture: colorTexture,
                     depthTexture: view.depthStencilTexture,
                     commandBuffer: commandBuffer
                 )
-                let previousOverlays = measureLabelOverlays
-                refreshMeasureLabels()
-                // Only push SwiftUI when label screen positions/text actually change.
-                if previousOverlays != measureLabelOverlays {
-                    onMeasureStateChanged?()
-                }
             }
 
-            // SampleApp / PlayCanvas SplatClickQuery blue pick marker.
-            if let marker = lastPickedModelCoordinate, pointClickMode {
-                let distance: Float
-                if let nav = lastPickedCoordinate {
-                    distance = max(0.35, simd_length(nav - cameraPosition))
-                } else {
-                    distance = 2.0
-                }
-                let scale = measureOverlayScale
-                // PlayCanvas: clamp(distance * 0.012, 0.02, 0.5) × measure_scale from nav.txt
-                let size = min(0.5 * scale, max(0.02 * scale, distance * 0.012 * scale))
-                measureOverlayRenderer?.drawPins(
-                    atModelPositions: [marker],
-                    diameter: size,
-                    color: SIMD4<Float>(0.18, 0.48, 1.0, 0.95),
-                    viewProjection: viewProjection,
-                    colorTexture: colorTexture,
-                    depthTexture: view.depthStencilTexture,
-                    to: commandBuffer
-                )
+            // Labels + Windows cursor ring in SwiftUI; pins stay Metal.
+            let previousLabels = measureLabelOverlays
+            let previousHover = measureHoverOverlay
+            let previousLasers = measureLaserOverlays
+            refreshMeasureScreenChrome()
+            if previousLabels != measureLabelOverlays
+                || previousHover != measureHoverOverlay
+                || previousLasers != measureLaserOverlays {
+                onMeasureStateChanged?()
             }
 
             if screenshotWaiter.hasPending {
