@@ -3,7 +3,9 @@ import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import { registerAuthStorageIpc } from './authStorage'
 import { registerBookingProxyIpc } from './bookingProxy'
+import { registerDamageIpc } from './deepseekDamage'
 import { registerHttpProxyIpc } from './httpProxy'
+import { loadEnvFile } from './loadEnv'
 import { registerProjectDownloadIpc } from './projectDownloadIpc'
 import {
   buildViewerUrl,
@@ -20,10 +22,12 @@ import { VIEWER_CHANNELS } from '../shared/viewerChannels'
 let windowCreated = false
 
 function registerIpc(): void {
+  loadEnvFile()
   registerAuthStorageIpc()
   registerProjectDownloadIpc()
   registerBookingProxyIpc()
   registerHttpProxyIpc()
+  registerDamageIpc()
 
   handle(VIEWER_CHANNELS.origin, async () => getMediaServerOrigin())
   handle(VIEWER_CHANNELS.buildUrl, async (_event, options) => buildViewerUrl(options))

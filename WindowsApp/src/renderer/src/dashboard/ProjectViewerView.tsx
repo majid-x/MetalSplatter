@@ -20,7 +20,11 @@ type ScreenshotPurpose = 'products' | 'save' | null
 const DEFAULT_HINT =
   'Drag to look · WASD / arrows move · Shift sprint (2×) · Q/E up/down'
 
-function RailIcon({ name }: { name: 'measure' | 'products' | 'shot' | 'search' | 'topdown' }) {
+function RailIcon({
+  name
+}: {
+  name: 'measure' | 'products' | 'shot' | 'search' | 'topdown' | 'damage'
+}) {
   if (name === 'measure') {
     return (
       <svg className="rail-svg" viewBox="0 0 16 16" aria-hidden>
@@ -57,6 +61,16 @@ function RailIcon({ name }: { name: 'measure' | 'products' | 'shot' | 'search' |
         <path
           fill="currentColor"
           d="M7 2.2a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6zm0 1.5a3.3 3.3 0 1 0 0 6.6 3.3 3.3 0 0 0 0-6.6zm4.4 6.5 2.7 2.7-1.1 1.1-2.7-2.7 1.1-1.1z"
+        />
+      </svg>
+    )
+  }
+  if (name === 'damage') {
+    return (
+      <svg className="rail-svg" viewBox="0 0 16 16" aria-hidden>
+        <path
+          fill="currentColor"
+          d="M8 1.5 14.5 13H1.5L8 1.5zm0 3.2-.9 5.1h1.8L8 4.7zM7.2 12.2h1.6V14H7.2v-1.8z"
         />
       </svg>
     )
@@ -191,11 +205,30 @@ export function ProjectViewerView({
     }
   }
 
+  function setDamageOn(enabled: boolean) {
+    clearModes()
+    dismissMeasureTool()
+    if (enabled) {
+      setActiveTool('damage')
+      setPickMode('damage')
+      setShowSidePanel(true)
+      setToolHint('Damage Estimation on · click a wall surface · drag to look')
+    } else {
+      setActiveTool(null)
+      setShowSidePanel(false)
+      setToolHint(DEFAULT_HINT)
+    }
+  }
+
   const onPick = useCallback((event: ViewerPickEvent) => {
     pickSeqRef.current += 1
     setLastPick({ ...event, id: pickSeqRef.current })
+    // Keep the active tool — never flip Damage Estimation into Search Image.
     if (event.mode === 'photos') {
       setActiveTool('photos')
+      setShowSidePanel(true)
+    } else if (event.mode === 'damage') {
+      setActiveTool('damage')
       setShowSidePanel(true)
     }
   }, [])
@@ -291,7 +324,8 @@ export function ProjectViewerView({
   }, [status, hadCache, opened])
 
   const sidePanelOpen =
-    showSidePanel && (activeTool === 'photos' || activeTool === 'products')
+    showSidePanel &&
+    (activeTool === 'photos' || activeTool === 'products' || activeTool === 'damage')
 
   return (
     <div className="project-viewer">
@@ -357,6 +391,19 @@ export function ProjectViewerView({
                   <RailIcon name="search" />
                   {activeTool === 'photos' ? 'Search Image On' : 'Search Image'}
                   {activeTool === 'photos' && <span className="rail-dot orange" />}
+                </button>
+              )}
+
+              {supportsPhotoSearch && (
+                <button
+                  type="button"
+                  className={`viewer-rail-btn accent-amber ${activeTool === 'damage' ? 'active' : ''}`}
+                  onClick={() => setDamageOn(activeTool !== 'damage')}
+                  disabled={Boolean(screenshotPurpose)}
+                >
+                  <RailIcon name="damage" />
+                  {activeTool === 'damage' ? 'Damage On' : 'Damage Estimate'}
+                  {activeTool === 'damage' && <span className="rail-dot orange" />}
                 </button>
               )}
 
@@ -455,7 +502,10 @@ export function ProjectViewerView({
                 <p className="viewer-tool-status">{measureStatus}</p>
               )}
 
-              {activeTool === 'measure' || screenshotPurpose || activeTool === 'photos' ? (
+              {activeTool === 'measure' ||
+              screenshotPurpose ||
+              activeTool === 'photos' ||
+              activeTool === 'damage' ? (
                 <p className="viewer-tool-hint">{toolHint}</p>
               ) : (
                 <p className={`viewer-tool-hint${sprinting ? ' sprinting' : ''}`}>

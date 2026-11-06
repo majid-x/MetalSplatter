@@ -13,6 +13,11 @@ import {
   type BookingHttpResponse
 } from '../shared/bookingChannels'
 import { CAPTURE_CHANNELS, type CaptureRegionRequest } from '../shared/captureChannels'
+import {
+  DAMAGE_CHANNELS,
+  type DamageAnalyzeRequest,
+  type DamageAnalyzeResponse
+} from '../shared/damageChannels'
 import { HTTP_PROXY_CHANNELS, type HttpProxyRequest, type HttpProxyResponse } from '../shared/httpProxyChannels'
 import { PAYMENT_CHANNELS, type PaymentSessionRequest } from '../shared/paymentChannels'
 import { VIEWER_CHANNELS, type ViewerLaunchOptions } from '../shared/viewerChannels'
@@ -101,6 +106,11 @@ const files = {
   pathFor: (file: File): string => webUtils.getPathForFile(file)
 }
 
+const damage = {
+  analyze: (payload: DamageAnalyzeRequest): Promise<DamageAnalyzeResponse> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.analyze, payload)
+}
+
 contextBridge.exposeInMainWorld('avgs', {
   platform: process.platform,
   versions: {
@@ -115,5 +125,6 @@ contextBridge.exposeInMainWorld('avgs', {
   capture,
   booking,
   http,
+  damage,
   files
 })

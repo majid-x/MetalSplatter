@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import type { OpenedPackage } from '../../../shared/projectDownloadChannels'
 import { measurementPrefs } from '../lib/measurementPrefs'
 
-export type ViewerPickMode = 'photos' | 'measure-a' | 'measure-b' | null
+export type ViewerPickMode = 'photos' | 'damage' | 'measure-a' | 'measure-b' | null
 
 export type ViewerPickEvent = {
   mode: Exclude<ViewerPickMode, null>
@@ -138,8 +138,8 @@ export function SuperSplatViewer({
         postToViewer({ type: 'setMeasureExact', exact: measurementPrefs.showExactMeasurements })
         postToViewer({ type: 'setMeasureMode', enabled: measureMode })
         postToViewer({ type: 'setMeasureDeleteMode', enabled: measureDeleteMode })
-        if (pickMode === 'photos') {
-          postToViewer({ type: 'setPickMode', mode: 'photos' })
+        if (pickMode === 'photos' || pickMode === 'damage') {
+          postToViewer({ type: 'setPickMode', mode: pickMode })
         }
         // Enter FPS walk at nav spawn — never frameScene (orbit/top-down overview).
         postToViewer({
@@ -180,8 +180,8 @@ export function SuperSplatViewer({
     postToViewer({ type: 'setMeasureMode', enabled: measureMode })
     if (!measureMode) {
       postToViewer({ type: 'setMeasureDeleteMode', enabled: false })
-      if (pickMode === 'photos') {
-        postToViewer({ type: 'setPickMode', mode: 'photos' })
+      if (pickMode === 'photos' || pickMode === 'damage') {
+        postToViewer({ type: 'setPickMode', mode: pickMode })
       } else {
         postToViewer({ type: 'setPickMode', mode: null })
       }

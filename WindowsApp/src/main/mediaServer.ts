@@ -382,7 +382,7 @@ function vroomkViewerHtml(): string {
       'font:700 14px/1.2 Segoe UI,sans-serif;letter-spacing:0.06em;' +
       'border:1px solid rgba(125,255,178,0.55);pointer-events:none;' +
       'box-shadow:0 8px 24px rgba(0,0,0,0.55);';
-    let pickMode = null; // 'photos' only — measure runs its own mode
+    let pickMode = null; // 'photos' | 'damage' — measure runs its own mode
     let viewerHandle = null;
     let walker = null;
     let sceneNav = null;
@@ -466,8 +466,12 @@ function vroomkViewerHtml(): string {
       });
     }
 
+    function isSurfacePickMode() {
+      return pickMode === 'photos' || pickMode === 'damage';
+    }
+
     function toolsNeedCursor() {
-      return measureMode || pickMode === 'photos';
+      return measureMode || isSurfacePickMode();
     }
 
     function applyLookFromEvent(event) {
@@ -496,12 +500,14 @@ function vroomkViewerHtml(): string {
       }
     }
 
-    function runPhotoPickAt(cx, cy) {
+    function runSurfacePickAt(cx, cy) {
+      const modeAtClick = pickMode;
+      if (modeAtClick !== 'photos' && modeAtClick !== 'damage') return;
       const req = ++pickRequestId;
       photoClickFlash = { x: cx, y: cy, until: performance.now() + 350 };
       drawToolOverlay();
       void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
-        if (!result || req !== pickRequestId || pickMode !== 'photos') return;
+        if (!result || req !== pickRequestId || pickMode !== modeAtClick) return;
         photoPickPoint = result.point;
         photoClickFlash = null;
         drawToolOverlay();
@@ -509,7 +515,7 @@ function vroomkViewerHtml(): string {
         const apiPoint = toMacPhotoPoint(viewerHandle.app, result.point, sceneNav);
         post({
           type: 'pick',
-          mode: pickMode,
+          mode: modeAtClick,
           point: apiPoint,
           camera: result.camera
         });
@@ -664,17 +670,21 @@ function vroomkViewerHtml(): string {
     }
 
     function setPickMode(mode) {
-      // Photos pick only; measure uses setMeasureMode.
+      // Surface pick (photos / damage); measure uses setMeasureMode.
       if (mode && String(mode).startsWith('measure')) {
         setMeasureMode(true);
         return;
       }
-      if (mode === 'photos') {
+      if (mode === 'photos' || mode === 'damage') {
         setMeasureMode(false);
-        pickMode = 'photos';
+        pickMode = mode;
         clearPhotoMarker();
         banner.classList.add('on');
-        banner.textContent = 'Click in the scene to search nearby photos';
+        // Damage mode must not reveal the image-search backend to the user.
+        banner.textContent =
+          mode === 'damage'
+            ? 'Click a wall surface to estimate damage'
+            : 'Click in the scene to search nearby photos';
         drawToolOverlay();
       } else {
         pickMode = null;
@@ -703,8 +713,8 @@ function vroomkViewerHtml(): string {
       } else {
         // Mac: leaving Measure turns the tool off and drops hover/reticle.
         // Clear on-screen overlay so pins/lasers don't sit on top of other tools.
-        if (pickMode !== 'photos') banner.classList.remove('on');
-        if (pickMode !== 'photos') overlay.innerHTML = '';
+        if (!isSurfacePickMode()) banner.classList.remove('on');
+        if (!isSurfacePickMode()) overlay.innerHTML = '';
         else drawToolOverlay();
         emitMeasureState(
           measureNodes.length === 0
@@ -992,7 +1002,7 @@ function vroomkViewerHtml(): string {
         return;
       }
       // Draw measure chrome and/or Search Image pin.
-      if (!measureMode && pickMode !== 'photos') {
+      if (!measureMode && !isSurfacePickMode()) {
         overlay.innerHTML = '';
         return;
       }
@@ -1068,8 +1078,8 @@ function vroomkViewerHtml(): string {
         }
       }
 
-      // Search Image: same cyan HTML pin as Measure (reprojected every frame).
-      if (pickMode === 'photos') {
+      // Search Image / Damage: same cyan HTML pin as Measure (reprojected every frame).
+      if (isSurfacePickMode()) {
         const oscale = measureOverlayScale;
         const pinSize = Math.max(6, 12 * oscale);
         if (photoClickFlash) {
@@ -1368,7 +1378,7 @@ function vroomkViewerHtml(): string {
         }
         if (event.button !== 0) return;
         if (event.detail > 1) return;
-        if (measureMode || pickMode === 'photos') {
+        if (measureMode || isSurfacePickMode()) {
           if (event.target !== canvas && event.target !== document.body) return;
           event.preventDefault();
           event.stopPropagation();
@@ -1377,7 +1387,7 @@ function vroomkViewerHtml(): string {
             x: event.clientX,
             y: event.clientY,
             pointerId: event.pointerId,
-            kind: measureMode ? 'measure' : 'photos'
+            kind: measureMode ? 'measure' : pickMode
           };
           dragLooking = false;
           try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
@@ -1400,7 +1410,7 @@ function vroomkViewerHtml(): string {
           dragLooking = false;
           try { canvas.style.cursor = 'default'; } catch (_) {}
           try { canvas.releasePointerCapture(event.pointerId); } catch (_) {}
-          // Click (no drag) while Measure / Search Image → place / search.
+          // Click (no drag) while Measure / Search Image / Damage → place / search.
           if (
             event.button === 0 &&
             pending &&
@@ -1409,8 +1419,11 @@ function vroomkViewerHtml(): string {
           ) {
             if (pending.kind === 'measure' && measureMode) {
               void handleMeasureClick(pending.x, pending.y);
-            } else if (pending.kind === 'photos' && pickMode === 'photos') {
-              runPhotoPickAt(pending.x, pending.y);
+            } else if (
+              (pending.kind === 'photos' || pending.kind === 'damage') &&
+              pickMode === pending.kind
+            ) {
+              runSurfacePickAt(pending.x, pending.y);
             }
           }
         }
@@ -1474,7 +1487,7 @@ function vroomkViewerHtml(): string {
         // Reproject Measure / Search Image HTML pins whenever a frame runs.
         if (
           measureMode ||
-          (pickMode === 'photos' && (photoPickPoint || photoClickFlash))
+          (isSurfacePickMode() && (photoPickPoint || photoClickFlash))
         ) {
           drawToolOverlay();
         }

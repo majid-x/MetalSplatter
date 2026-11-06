@@ -21,6 +21,10 @@ import type {
   BookingHttpResponse
 } from '../../shared/bookingChannels'
 import type { CaptureRegionRequest } from '../../shared/captureChannels'
+import type {
+  DamageAnalyzeRequest,
+  DamageAnalyzeResponse
+} from '../../shared/damageChannels'
 import type { HttpProxyRequest, HttpProxyResponse } from '../../shared/httpProxyChannels'
 import type { PaymentSessionRequest } from '../../shared/paymentChannels'
 import type { ViewerLaunchOptions } from '../../shared/viewerChannels'
@@ -79,6 +83,10 @@ export interface AvgsHttpBridge {
   request: (payload: HttpProxyRequest) => Promise<HttpProxyResponse>
 }
 
+export interface AvgsDamageBridge {
+  analyze: (payload: DamageAnalyzeRequest) => Promise<DamageAnalyzeResponse>
+}
+
 export interface AvgsBridge {
   platform: NodeJS.Platform
   versions: {
@@ -93,6 +101,7 @@ export interface AvgsBridge {
   capture: AvgsCaptureBridge
   booking: AvgsBookingBridge
   http: AvgsHttpBridge
+  damage: AvgsDamageBridge
   files: AvgsFilesBridge
 }
 

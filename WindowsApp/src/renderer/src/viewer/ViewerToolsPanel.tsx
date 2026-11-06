@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  analyzeDamageFromPhotos,
+  DAMAGE_PHOTO_COUNT
+} from '../lib/damageEstimation'
 import { searchPhotos, type PhotoSearchResult } from '../lib/photoSearch'
 import { searchProductsFromImage, type ProductSearchMatch } from '../lib/productSearch'
 import { formatMeasureDistance } from '../lib/formatMeasureDistance'
 import { measurementPrefs } from '../lib/measurementPrefs'
 import type { RemoteProject } from '../projects/types'
 import type { OpenedPackage } from '../../../shared/projectDownloadChannels'
+import type { WallDamageReport } from '../../../shared/wallDamageReport'
+import { DamageReportView } from './DamageReportView'
 import type { ViewerPickEvent, ViewerPickMode } from './SuperSplatViewer'
 
-type Tool = 'photos' | 'products' | 'measure'
+type Tool = 'photos' | 'products' | 'measure' | 'damage'
 
 function VecFields({
   label,
@@ -95,9 +101,23 @@ export function ViewerToolsPanel({
   const [b, setB] = useState<[number, number, number]>([1, 0, 0])
   const [exact, setExact] = useState(measurementPrefs.showExactMeasurements)
 
+  const [damageReport, setDamageReport] = useState<WallDamageReport | null>(null)
+  const [damageAnnotatedImage, setDamageAnnotatedImage] = useState<string | null>(null)
+  const [damageStatus, setDamageStatus] = useState(
+    'Click a wall surface to estimate damage.'
+  )
+  const [damageBusy, setDamageBusy] = useState(false)
+  const damageGenRef = useRef(0)
+  const activeRef = useRef(active)
+  activeRef.current = active
+
   useEffect(() => {
     if (!lastPick) return
-    if (lastPick.mode === 'photos') {
+    if (lastPick.mode === 'damage') {
+      setPoint(lastPick.point)
+      setCamera(lastPick.camera)
+      void runDamageEstimation(lastPick.point, lastPick.camera)
+    } else if (lastPick.mode === 'photos') {
       setPoint(lastPick.point)
       setCamera(lastPick.camera)
       void runPhotoSearch(lastPick.point, lastPick.camera, false)
@@ -122,6 +142,53 @@ export function ViewerToolsPanel({
       imperial: formatMeasureDistance(meters, exact)
     }
   }, [a, b, project.measureFactor, exact])
+
+  async function runDamageEstimation(
+    queryPoint = point,
+    cam = camera
+  ) {
+    if (!project.photoAPIBaseURL) return
+    const gen = ++damageGenRef.current
+    setDamageBusy(true)
+    setDamageReport(null)
+    setDamageAnnotatedImage(null)
+    setDamageStatus('Inspecting surface…')
+    try {
+      const photoResponse = await searchPhotos({
+        baseURL: project.photoAPIBaseURL,
+        point: queryPoint,
+        cameraPosition: cam,
+        useSPZCoordinates: project.isSPZ,
+        useServerCalibration: project.useServerCalibration,
+        maxResults: DAMAGE_PHOTO_COUNT,
+        offset: 0
+      })
+      if (gen !== damageGenRef.current) return
+      setDamageStatus('Analyzing damage…')
+      const analysis = await analyzeDamageFromPhotos(
+        photoResponse.photos,
+        project.name
+      )
+      if (gen !== damageGenRef.current) return
+      setDamageReport(analysis.report)
+      setDamageAnnotatedImage(analysis.annotatedImageDataUrl)
+      setDamageStatus('Report ready')
+    } catch (error) {
+      if (gen !== damageGenRef.current) return
+      setDamageReport(null)
+      setDamageAnnotatedImage(null)
+      const raw =
+        error instanceof Error ? error.message : 'Damage estimation failed.'
+      // Never surface the photo-search backend wording to the user.
+      setDamageStatus(
+        /photo|search api|deepseek/i.test(raw)
+          ? 'Could not complete damage estimation. Try another point.'
+          : raw
+      )
+    } finally {
+      if (gen === damageGenRef.current) setDamageBusy(false)
+    }
+  }
 
   async function runPhotoSearch(
     queryPoint = point,
@@ -206,13 +273,21 @@ export function ViewerToolsPanel({
   }, [pendingProductDataUrl])
 
   const title =
-    active === 'photos' ? 'Nearby Photos' : active === 'products' ? 'Visual Matches' : 'Measure'
+    active === 'photos'
+      ? 'Nearby Photos'
+      : active === 'products'
+        ? 'Visual Matches'
+        : active === 'damage'
+          ? 'Damage Estimation'
+          : 'Measure'
 
   return (
     <aside className="viewer-tools">
       <header
         className={`viewer-tools-header ${
-          active === 'products' || active === 'photos' ? 'mac-products' : ''
+          active === 'products' || active === 'photos' || active === 'damage'
+            ? 'mac-products'
+            : ''
         }`}
       >
         <div>
@@ -221,6 +296,7 @@ export function ViewerToolsPanel({
             <p className="viewer-tools-kicker">Similar results from screenshot</p>
           )}
           {active === 'photos' && <p className="viewer-tools-kicker">{photoStatus}</p>}
+          {active === 'damage' && <p className="viewer-tools-kicker">{damageStatus}</p>}
         </div>
         <button type="button" className="viewer-tools-close" onClick={onClose} aria-label="Close">
           ×
@@ -229,9 +305,36 @@ export function ViewerToolsPanel({
 
       <div
         className={`viewer-tools-body ${
-          active === 'products' || active === 'photos' ? 'products-mac' : ''
+          active === 'products' || active === 'photos' || active === 'damage'
+            ? 'products-mac'
+            : ''
         }`}
       >
+        {active === 'damage' && (
+          <div className="damage-panel">
+            {!project.photoAPIBaseURL ? (
+              <div className="product-mac-empty">
+                <p>Damage estimation is not available for this project.</p>
+              </div>
+            ) : damageBusy && !damageReport ? (
+              <div className="product-mac-empty">
+                <span className="spinner" />
+                <p>{damageStatus}</p>
+              </div>
+            ) : !damageReport ? (
+              <div className="product-mac-empty">
+                <p>{damageStatus || 'Click a wall surface to estimate damage.'}</p>
+              </div>
+            ) : (
+              <>
+                <DamageReportView
+                  report={damageReport}
+                  annotatedImageDataUrl={damageAnnotatedImage}
+                />
+              </>
+            )}
+          </div>
+        )}
         {active === 'photos' && (
           <div className="photo-mac-panel">
             {!project.photoAPIBaseURL ? (
