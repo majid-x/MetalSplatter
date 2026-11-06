@@ -203,6 +203,10 @@ public final class SplatRenderer: @unchecked Sendable {
         var pickColorFormat: MTLPixelFormat = .r8Unorm
         var pickDepthFormat: MTLPixelFormat = .depth32Float
 
+        // SuperSplat-style stochastic surface pick (MIN-blended RGBA16F depth trials)
+        var stochasticPickPipelineState: MTLRenderPipelineState?
+        var stochasticPickColorFormat: MTLPixelFormat = .rgba16Float
+
         // Multi-stage pipeline
         var initializePipelineState: MTLRenderPipelineState?
         var drawSplatPipelineState: MTLRenderPipelineState?
@@ -595,6 +599,35 @@ public final class SplatRenderer: @unchecked Sendable {
         pipelineDescriptor.maxVertexAmplificationCount = maxViewCount
 
         return try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+    }
+
+    private func buildStochasticPickPipelineStateIfNeeded(colorFormat: MTLPixelFormat) throws {
+        if renderState.stochasticPickPipelineState != nil,
+           renderState.stochasticPickColorFormat == colorFormat {
+            return
+        }
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+        pipelineDescriptor.label = "StochasticPickPipeline"
+        pipelineDescriptor.vertexFunction = library.makeRequiredFunction(name: "singleStageSplatVertexShader")
+        pipelineDescriptor.fragmentFunction = library.makeRequiredFunction(name: "pickStochasticFragmentShader")
+        pipelineDescriptor.rasterSampleCount = 1
+
+        let colorAttachment = pipelineDescriptor.colorAttachments[0]!
+        colorAttachment.pixelFormat = colorFormat
+        colorAttachment.isBlendingEnabled = true
+        // Nearest surviving depth wins whatever order splats draw in (SuperSplat BLENDEQUATION_MIN).
+        colorAttachment.rgbBlendOperation = .min
+        colorAttachment.alphaBlendOperation = .min
+        colorAttachment.sourceRGBBlendFactor = .one
+        colorAttachment.sourceAlphaBlendFactor = .one
+        colorAttachment.destinationRGBBlendFactor = .one
+        colorAttachment.destinationAlphaBlendFactor = .one
+        pipelineDescriptor.colorAttachments[0] = colorAttachment
+        pipelineDescriptor.depthAttachmentPixelFormat = .invalid
+        pipelineDescriptor.maxVertexAmplificationCount = maxViewCount
+
+        renderState.stochasticPickColorFormat = colorFormat
+        renderState.stochasticPickPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
     }
 
     private func buildPickDepthState() throws -> MTLDepthStencilState {
@@ -1160,6 +1193,151 @@ public final class SplatRenderer: @unchecked Sendable {
         renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: renderState.uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
         renderEncoder.setVertexBuffer(chunksBuffer, offset: 0, index: BufferIndex.chunks.rawValue)
         renderEncoder.setVertexBuffer(splatIndexBuffer.buffer, offset: 0, index: BufferIndex.splatIndex.rawValue)
+
+        for entry in allChunks {
+            renderEncoder.useResource(entry.chunk.splats.buffer, usage: .read, stages: .vertex)
+            if let shBuffer = entry.chunk.shCoefficients?.buffer {
+                renderEncoder.useResource(shBuffer, usage: .read, stages: .vertex)
+            }
+        }
+
+        renderEncoder.drawIndexedPrimitives(type: .triangle,
+                                            indexCount: triangleVertexCount,
+                                            indexType: .uint32,
+                                            indexBuffer: renderState.triangleVertexIndexBuffer.buffer,
+                                            indexBufferOffset: 0,
+                                            instanceCount: instanceCount)
+        renderEncoder.endEncoding()
+        return true
+    }
+
+    /// SuperSplat `Picker` render: stochastic survival trials (4 channels) of normalised linear depth
+    /// (`(viewDepth - near) / (far - near)`, 1 = nothing survived), MIN-blended into `colorTexture`
+    /// (must be `.rgba16Float`). Read the result with `SuperSplat pickSurface` logic.
+    @discardableResult
+    public func renderStochasticPick(viewports: [ViewportDescriptor],
+                                     colorTexture: MTLTexture,
+                                     nearClip: Float,
+                                     farClip: Float,
+                                     accessTimeout: TimeInterval = 0.1,
+                                     sortTimeout: TimeInterval = 0.1,
+                                     to commandBuffer: MTLCommandBuffer) throws -> Bool {
+        let deadline = Date().addingTimeInterval(accessTimeout)
+        while true {
+            let acquired = accessState.withLock { state -> Bool in
+                if state.hasExclusiveAccess { return false }
+                if !state.exclusiveAccessWaiters.isEmpty { return false }
+                if state.isRendering { return false }
+                if state.inFlightRenderCount >= maxSimultaneousRenders { return false }
+                state.isRendering = true
+                state.inFlightRenderCount += 1
+                return true
+            }
+            if acquired { break }
+            if Date() >= deadline { return false }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+
+        var renderCompletionScheduled = false
+        defer {
+            accessState.withLock { state in
+                state.isRendering = false
+            }
+            if !renderCompletionScheduled {
+                renderCompleted()
+            }
+        }
+
+        let allChunks: [ChunkEntry] = orderedChunkIDs.compactMap { chunks[$0] }
+        let cameraPose = Self.cameraWorldPose(forViewports: viewports)
+        sorter.updateCameraPose(position: cameraPose.position, forward: cameraPose.forward)
+
+        var splatIndexBuffer = sorter.tryObtainSortedIndices()
+        if splatIndexBuffer == nil && sortTimeout > 0 {
+            let sortDeadline = Date().addingTimeInterval(sortTimeout)
+            while splatIndexBuffer == nil && Date() < sortDeadline {
+                Thread.sleep(forTimeInterval: 0.01)
+                splatIndexBuffer = sorter.tryObtainSortedIndices()
+            }
+        }
+        guard let splatIndexBuffer else { return false }
+
+        commandBuffer.addCompletedHandler { [sorter, weak self] _ in
+            self?.renderCompleted()
+            sorter.releaseSortedIndices(splatIndexBuffer)
+        }
+        renderCompletionScheduled = true
+
+        let splatCount = splatIndexBuffer.count
+        guard splatCount != 0 else { return false }
+
+        let indexedSplatCount = min(splatCount, Constants.maxIndexedSplatCount)
+        let instanceCount = (splatCount + indexedSplatCount - 1) / indexedSplatCount
+
+        switchToNextDynamicBuffer()
+        updateUniforms(forViewports: viewports,
+                       chunkCount: UInt32(allChunks.count),
+                       splatCount: UInt32(splatCount),
+                       indexedSplatCount: UInt32(indexedSplatCount))
+
+        guard let chunksBuffer = buildChunksBuffer(allChunks: allChunks) else {
+            return false
+        }
+        commandBuffer.addCompletedHandler { [bufferPool, chunksBuffer] _ in
+            bufferPool.release(chunksBuffer, tag: .chunks)
+        }
+
+        try buildStochasticPickPipelineStateIfNeeded(colorFormat: colorTexture.pixelFormat)
+        guard let pipelineState = renderState.stochasticPickPipelineState else {
+            return false
+        }
+
+        let renderPassDescriptor = MTLRenderPassDescriptor()
+        renderPassDescriptor.colorAttachments[0].texture = colorTexture
+        renderPassDescriptor.colorAttachments[0].loadAction = .clear
+        renderPassDescriptor.colorAttachments[0].storeAction = .store
+        // farColor = (1,1,1,1): nothing survived.
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+            return false
+        }
+        renderEncoder.label = "Stochastic Pick Pass"
+        renderEncoder.setViewports(viewports.map(\.viewport))
+        if viewports.count > 1 {
+            var viewMappings = (0..<viewports.count).map {
+                MTLVertexAmplificationViewMapping(viewportArrayIndexOffset: UInt32($0),
+                                                  renderTargetArrayIndexOffset: UInt32($0))
+            }
+            renderEncoder.setVertexAmplificationCount(viewports.count, viewMappings: &viewMappings)
+        }
+
+        let triangleVertexCount = indexedSplatCount * 6
+        if renderState.triangleVertexIndexBuffer.count < triangleVertexCount {
+            do {
+                try renderState.triangleVertexIndexBuffer.ensureCapacity(triangleVertexCount)
+            } catch {
+                renderEncoder.endEncoding()
+                return false
+            }
+            renderState.triangleVertexIndexBuffer.count = triangleVertexCount
+            for i in 0..<indexedSplatCount {
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 0] = UInt32(i * 4 + 0)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 1] = UInt32(i * 4 + 1)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 2] = UInt32(i * 4 + 2)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 3] = UInt32(i * 4 + 1)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 4] = UInt32(i * 4 + 2)
+                renderState.triangleVertexIndexBuffer.values[i * 6 + 5] = UInt32(i * 4 + 3)
+            }
+        }
+
+        var planes = SIMD2<Float>(nearClip, farClip)
+        renderEncoder.setRenderPipelineState(pipelineState)
+        renderEncoder.setCullMode(.none)
+        renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: renderState.uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
+        renderEncoder.setVertexBuffer(chunksBuffer, offset: 0, index: BufferIndex.chunks.rawValue)
+        renderEncoder.setVertexBuffer(splatIndexBuffer.buffer, offset: 0, index: BufferIndex.splatIndex.rawValue)
+        renderEncoder.setFragmentBytes(&planes, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
 
         for entry in allChunks {
             renderEncoder.useResource(entry.chunk.splats.buffer, usage: .read, stages: .vertex)

@@ -154,9 +154,8 @@ export function ProjectViewerView({
     setScreenshotPurpose(null)
   }
 
-  /** Mac ClientSceneView: enabling another tool forces Measure off and clears its UI. */
+  /** Turn Measure off but keep placed pins/distances (Delete All clears). */
   function dismissMeasureTool() {
-    measureCommandsRef.current?.clear()
     setMeasureDeleteMode(false)
     setMeasureStatus('Measure off')
   }

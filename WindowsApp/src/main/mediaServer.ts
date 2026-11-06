@@ -709,19 +709,17 @@ function vroomkViewerHtml(): string {
         banner.classList.add('on');
         banner.textContent = 'Measure on · click two points';
         emitMeasureState('Measure on · click two points');
-        drawToolOverlay();
       } else {
-        // Mac: leaving Measure turns the tool off and drops hover/reticle.
-        // Clear on-screen overlay so pins/lasers don't sit on top of other tools.
+        // Keep placed measurements visible; only drop hover/reticle.
+        // Surface pick (photos / damage) keeps its own banner.
         if (!isSurfacePickMode()) banner.classList.remove('on');
-        if (!isSurfacePickMode()) overlay.innerHTML = '';
-        else drawToolOverlay();
         emitMeasureState(
           measureNodes.length === 0
             ? 'Measure off'
             : ('Measure off · ' + measureNodes.length + ' points kept')
         );
       }
+      drawToolOverlay();
       syncToolVsWalk();
     }
 
@@ -1001,15 +999,16 @@ function vroomkViewerHtml(): string {
         overlay.innerHTML = '';
         return;
       }
-      // Draw measure chrome and/or Search Image pin.
-      if (!measureMode && !isSurfacePickMode()) {
+      // Measure pins persist after leaving the tool; hover only while Measure is on.
+      // Surface pick (photos / damage) keeps its pin overlay.
+      if (!measureMode && measureNodes.length === 0 && !isSurfacePickMode()) {
         overlay.innerHTML = '';
         return;
       }
       const app = viewerHandle.app;
       let html = '';
 
-      if (measureMode) {
+      if (measureNodes.length > 0 || measureMode) {
         const oscale = measureOverlayScale;
         const strokeW = Math.max(1, 2.5 * oscale);
         const pinSize = Math.max(6, 12 * oscale);
@@ -1046,11 +1045,11 @@ function vroomkViewerHtml(): string {
         for (let i = 0; i < measureNodes.length; i++) {
           const s = screenOf(app, measureNodes[i]);
           if (!s) continue;
-          const active = measureDeleteMode && measureDeleteHoverIndex === i;
+          const active = measureMode && measureDeleteMode && measureDeleteHoverIndex === i;
           html += pinHtml(s, active ? 'rgb(255,90,90)' : 'rgb(40,220,255)', active ? pinActive : pinSize);
         }
 
-        if (measureHoverScreen) {
+        if (measureMode && measureHoverScreen) {
           const h = measureHoverScreen;
           html +=
             '<div style="position:absolute;left:' + h.x + 'px;top:' + h.y +
@@ -1298,6 +1297,18 @@ function vroomkViewerHtml(): string {
       // Use capture on window + document so keys work under pointer-lock and after drag-look.
       function onWalkKeyDown(event) {
         if (!viewerHandle?.state?.loaded) return;
+        // Ctrl/Cmd+Z → undo last measure pin (same as rail Undo).
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.code === 'KeyZ' || event.key === 'z' || event.key === 'Z')
+        ) {
+          undoMeasurePoint();
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         if (event.ctrlKey || event.altKey || event.metaKey) return;
         const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
         if (key === '1' || key === 'f' || key === 'F') {
@@ -1485,8 +1496,10 @@ function vroomkViewerHtml(): string {
           sprintHud.style.display = 'none';
         }
         // Reproject Measure / Search Image HTML pins whenever a frame runs.
+        // Measure pins stay visible after leaving the tool until Delete All.
         if (
           measureMode ||
+          measureNodes.length > 0 ||
           (isSurfacePickMode() && (photoPickPoint || photoClickFlash))
         ) {
           drawToolOverlay();

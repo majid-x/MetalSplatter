@@ -240,9 +240,21 @@ export function SuperSplatViewer({
     }
 
     function onKey(event: KeyboardEvent, down: boolean): void {
+      if (isTypingTarget(event.target)) return
+      // Ctrl/Cmd+Z → undo last measure point (works even when iframe lacks focus).
+      if (
+        down &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        (event.code === 'KeyZ' || event.key === 'z' || event.key === 'Z')
+      ) {
+        postToViewer({ type: 'undoMeasure' })
+        event.preventDefault()
+        return
+      }
       if (event.ctrlKey || event.altKey || event.metaKey) return
       if (!walkCodes.has(event.code)) return
-      if (isTypingTarget(event.target)) return
       // Always forward: in Electron, arrows often hit the host even when the iframe
       // "has focus". setKey is idempotent, so a duplicate from the iframe is fine.
       postToViewer({
