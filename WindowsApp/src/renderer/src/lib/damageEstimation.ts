@@ -6,7 +6,7 @@ export const DAMAGE_PHOTO_COUNT = 12
 
 export async function analyzeDamageFromPhotos(
   photos: PhotoSearchResult[],
-  projectName?: string
+  options?: { projectName?: string; measureFactor?: number }
 ): Promise<{
   report: WallDamageReport
   imageCount: number
@@ -24,7 +24,8 @@ export async function analyzeDamageFromPhotos(
 
   const response = await window.avgs.damage.analyze({
     imageDataUrls,
-    projectName,
+    projectName: options?.projectName,
+    measureFactor: options?.measureFactor,
     maxImages: DAMAGE_PHOTO_COUNT
   })
 

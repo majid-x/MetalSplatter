@@ -24,6 +24,11 @@ export type DamageAnalyzeRequest = {
   imageDataUrls: string[]
   projectName?: string
   maxImages?: number
+  /**
+   * Project calibration from DB: scene_units × measureFactor = real meters.
+   * Used so area/cost estimates are real-world, not photo guesses.
+   */
+  measureFactor?: number
 }
 
 export type DamageAnalyzeResponse = {

@@ -165,10 +165,10 @@ export function ViewerToolsPanel({
       })
       if (gen !== damageGenRef.current) return
       setDamageStatus('Analyzing damage…')
-      const analysis = await analyzeDamageFromPhotos(
-        photoResponse.photos,
-        project.name
-      )
+      const analysis = await analyzeDamageFromPhotos(photoResponse.photos, {
+        projectName: project.name,
+        measureFactor: project.measureFactor
+      })
       if (gen !== damageGenRef.current) return
       setDamageReport(analysis.report)
       setDamageAnnotatedImage(analysis.annotatedImageDataUrl)
@@ -181,7 +181,9 @@ export function ViewerToolsPanel({
         error instanceof Error ? error.message : 'Damage estimation failed.'
       // Never surface the photo-search backend wording to the user.
       setDamageStatus(
-        /photo|search api|deepseek/i.test(raw)
+        /photo|search api|deepseek|syntaxerror|json|invoking remote|avgs:damage/i.test(
+          raw
+        )
           ? 'Could not complete damage estimation. Try another point.'
           : raw
       )
@@ -330,6 +332,7 @@ export function ViewerToolsPanel({
                 <DamageReportView
                   report={damageReport}
                   annotatedImageDataUrl={damageAnnotatedImage}
+                  measureFactor={project.measureFactor}
                 />
               </>
             )}

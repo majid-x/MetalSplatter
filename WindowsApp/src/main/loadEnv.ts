@@ -4,11 +4,17 @@ import { app } from 'electron'
 
 /** Load KEY=VALUE pairs from WindowsApp/.env into process.env (does not override existing). */
 export function loadEnvFile(): void {
+  const exeDir = app.isPackaged
+    ? join(app.getPath('exe'), '..')
+    : ''
   const candidates = [
+    // Packaged builds ship .env via electron-builder extraResources.
+    app.isPackaged ? join(process.resourcesPath, '.env') : '',
+    exeDir ? join(exeDir, '.env') : '',
     join(app.getAppPath(), '.env'),
     join(process.cwd(), '.env'),
     join(__dirname, '../../.env')
-  ]
+  ].filter(Boolean)
   for (const file of candidates) {
     if (!existsSync(file)) continue
     try {
