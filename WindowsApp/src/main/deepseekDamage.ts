@@ -15,18 +15,11 @@ const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
 const DEEPSEEK_MODEL = 'deepseek-flash'
 const DEFAULT_MAX_IMAGES = 12
 
-/** Injected at build time from WindowsApp/.env (see electron.vite.config.ts). */
-declare const __DEEPSEEK_API_KEY__: string | undefined
-
 function apiKey(): string {
-  const fromEnv = (process.env.DEEPSEEK_API_KEY || '').trim()
-  const fromBuild =
-    typeof __DEEPSEEK_API_KEY__ === 'string' ? __DEEPSEEK_API_KEY__.trim() : ''
-  const key = fromEnv || fromBuild
+  const key = (process.env.DEEPSEEK_API_KEY || '').trim()
   if (!key) {
     throw new Error(
-      'Damage estimation is not configured (missing DEEPSEEK_API_KEY). ' +
-        'Add it to WindowsApp/.env before building, or place a .env next to the app / in userData.'
+      'DeepSeek API key missing. Add DEEPSEEK_API_KEY to WindowsApp/.env (see .env.example).'
     )
   }
   return key
@@ -40,65 +33,22 @@ function toDataUrl(input: string): string | null {
   return `data:image/jpeg;base64,${s.replace(/\s+/g, '')}`
 }
 
-/** Pull the first top-level `{ ... }` with string/escape awareness (ignores trailing junk). */
-function sliceFirstJsonObject(text: string): string | null {
-  const start = text.indexOf('{')
-  if (start < 0) return null
-  let depth = 0
-  let inString = false
-  let escape = false
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i]
-    if (inString) {
-      if (escape) {
-        escape = false
-      } else if (ch === '\\') {
-        escape = true
-      } else if (ch === '"') {
-        inString = false
-      }
-      continue
-    }
-    if (ch === '"') {
-      inString = true
-      continue
-    }
-    if (ch === '{') depth++
-    else if (ch === '}') {
-      depth--
-      if (depth === 0) return text.slice(start, i + 1)
-    }
-  }
-  return null
-}
-
-function tryParseJson(text: string): unknown | null {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
-  }
-}
-
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim()
-  const direct = tryParseJson(trimmed)
-  if (direct !== null) return direct
-
-  // Model may wrap JSON in markdown fences, sometimes with trailing commentary.
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    // Fall through — model may wrap JSON in markdown fences.
+  }
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed)
   if (fenced?.[1]) {
-    const inner = fenced[1].trim()
-    const fromFence = tryParseJson(inner) ?? tryParseJson(sliceFirstJsonObject(inner) ?? '')
-    if (fromFence !== null) return fromFence
+    return JSON.parse(fenced[1].trim())
   }
-
-  const sliced = sliceFirstJsonObject(trimmed)
-  if (sliced) {
-    const fromSlice = tryParseJson(sliced)
-    if (fromSlice !== null) return fromSlice
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start >= 0 && end > start) {
+    return JSON.parse(trimmed.slice(start, end + 1))
   }
-
   throw new Error('DeepSeek did not return valid JSON for the damage report.')
 }
 

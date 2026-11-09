@@ -1,0 +1,40 @@
+{
+  "appId": "com.vroomk.windows.test",
+  "productName": "Vroomk Test",
+  "copyright": "Copyright © Vroomk",
+  "directories": {
+    "output": "release-test",
+    "buildResources": "assets"
+  },
+  "files": [
+    "out/**/*",
+    "viewer/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "asar": true,
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/logo2.png",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Vroomk Test"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.${ext}"
+  }
+}
