@@ -184,6 +184,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Best-effort local wipe before server delete.
     }
     try {
+      await window.avgs.damage.removeAll()
+    } catch {
+      // Saved damage reports — best-effort wipe too.
+    }
+    try {
       await accountApi.deleteAccount(session.access_token)
     } catch (error) {
       throw AuthFlowError.message(

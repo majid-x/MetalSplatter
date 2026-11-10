@@ -57,6 +57,7 @@ export function DashboardView() {
         isSPZ: fileName.toLowerCase().endsWith('.spz'),
         useServerCalibration: false,
         measureFactor: 1,
+        hasMeasureFactor: false,
         moveSpeed: null,
         createdAt: null
       }

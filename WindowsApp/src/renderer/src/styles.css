@@ -2516,3 +2516,288 @@ h1 {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.32);
 }
+
+/* ---- Damage estimate: actions, cost basis, saved reports ---- */
+.damage-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.damage-action-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 146, 60, 0.45);
+  background: rgba(251, 146, 60, 0.16);
+  color: rgb(253, 186, 116);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.damage-action-btn:hover:not(:disabled) {
+  background: rgba(251, 146, 60, 0.26);
+}
+
+.damage-action-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.damage-action-btn.ghost {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.damage-action-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.damage-cost-list p.damage-cost-basis {
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.damage-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
+
+.damage-saved h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.damage-saved ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.damage-saved li {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.damage-saved-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.damage-saved-open:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.damage-saved-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.damage-saved-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.damage-saved-delete {
+  width: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.damage-saved-delete:hover {
+  color: var(--error);
+  border-color: rgba(242, 140, 133, 0.4);
+}
+
+/* Hidden for the instant the app captures a clean frame of the marked damage area. */
+body.damage-capturing .viewer-tool-rail,
+body.damage-capturing .viewer-tool-hint,
+body.damage-capturing .viewer-tool-status,
+body.damage-capturing .viewer-inline-error {
+  visibility: hidden;
+}
+
+/* ---- Damage report gallery + full-screen viewer ---- */
+.damage-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.damage-gallery-main,
+.damage-gallery-thumb {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #080808;
+  cursor: zoom-in;
+}
+
+.damage-gallery-main img {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.damage-gallery-caption {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+}
+
+.damage-gallery-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.damage-gallery-main:hover .damage-gallery-expand {
+  opacity: 1;
+}
+
+.damage-gallery-thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.damage-gallery-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.damage-gallery-main:hover,
+.damage-gallery-thumb:hover {
+  border-color: rgba(251, 146, 60, 0.6);
+}
+
+.damage-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  cursor: zoom-out;
+}
+
+/* Sized against the window itself so the whole image always fits. */
+.damage-lightbox-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: calc(100vw - 144px);
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  cursor: default;
+}
+
+.damage-lightbox-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  cursor: default;
+}
+
+.damage-lightbox-count {
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.damage-lightbox-close,
+.damage-lightbox-nav {
+  position: absolute;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+}
+
+.damage-lightbox-close {
+  top: 14px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  font-size: 22px;
+}
+
+.damage-lightbox-nav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 46px;
+  font-size: 28px;
+}
+
+.damage-lightbox-nav.prev {
+  left: 14px;
+}
+
+.damage-lightbox-nav.next {
+  right: 14px;
+}
+
+.damage-lightbox-close:hover,
+.damage-lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

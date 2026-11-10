@@ -39,6 +39,10 @@ export type DamageBoundaryCompleteEvent = {
   pointCount: number;
   /** Viewer screenshot with amber marked region — DeepSeek stay-inside guide. */
   regionScreenshot?: string | null;
+  /** Marked corners as 0–1 coords of the viewer viewport (null if a corner is off-screen). */
+  regionPolygon?: Array<[number, number]> | null;
+  /** Clean capture of the viewer (no pins / overlay) taken right after Finish. */
+  cleanViewDataUrl?: string | null;
   id: number;
 };
 
@@ -46,7 +50,22 @@ export type DamageBoundaryCommands = {
   undo: () => void;
   clear: () => void;
   finish: () => void;
+  /** Show the pins / banner again after the clean capture. */
+  restoreOverlay: () => void;
 };
+
+function parseRegionPolygon(value: unknown): Array<[number, number]> | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const out: Array<[number, number]> = [];
+  for (const pt of value) {
+    if (!Array.isArray(pt) || pt.length < 2) return null;
+    const x = Number(pt[0]);
+    const y = Number(pt[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    out.push([x, y]);
+  }
+  return out;
+}
 
 export function SuperSplatViewer({
   packageInfo,
@@ -193,6 +212,7 @@ export function SuperSplatViewer({
           camera?: number[];
           pointCount?: number;
           regionScreenshot?: string | null;
+          regionPolygon?: unknown;
         };
         const points = Array.isArray(raw.points)
           ? raw.points
@@ -220,6 +240,7 @@ export function SuperSplatViewer({
               raw.regionScreenshot.startsWith("data:image/")
                 ? raw.regionScreenshot
                 : null,
+            regionPolygon: parseRegionPolygon(raw.regionPolygon),
           });
         }
         return;
@@ -323,6 +344,7 @@ export function SuperSplatViewer({
       undo: () => postToViewer({ type: "undoDamageBoundary" }),
       clear: () => postToViewer({ type: "clearDamageBoundary" }),
       finish: () => postToViewer({ type: "finishDamageBoundary" }),
+      restoreOverlay: () => postToViewer({ type: "restoreToolOverlay" }),
     };
     return () => {
       damageBoundaryCommandsRef.current = null;

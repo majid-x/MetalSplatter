@@ -650,17 +650,62 @@ function vroomkViewerHtml(): string {
       // Ensure overlay is current, then grab a guide screenshot of the marked region.
       drawToolOverlay();
       const regionScreenshot = captureDamageRegionScreenshot();
+      const regionPolygon = damageRegionViewportPolygon();
       banner.textContent = 'Damage area marked · analyzing…';
       emitDamageBoundaryState('Boundary ready · ' + points.length + ' corners');
+      // Hide pins / banner / HUD so the host can capture a CLEAN frame of the marked
+      // area (the damage itself, not the orange overlay). Host sends restoreToolOverlay.
+      if (regionPolygon) hideToolChromeForCapture();
       post({
         type: 'damageBoundaryComplete',
         points: points,
         camera: camera,
         pointCount: points.length,
-        regionScreenshot: regionScreenshot
+        regionScreenshot: regionScreenshot,
+        regionPolygon: regionPolygon
       });
       kickWalkFrame();
       return true;
+    }
+
+    /** Marked corners as 0–1 coords of this iframe's viewport (null if any is off-screen / behind). */
+    function damageRegionViewportPolygon() {
+      try {
+        if (!viewerHandle || damageNodes.length < 3) return null;
+        const app = viewerHandle.app;
+        const canvas = app.graphicsDevice && app.graphicsDevice.canvas;
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        const vw = Math.max(1, window.innerWidth);
+        const vh = Math.max(1, window.innerHeight);
+        const out = [];
+        for (let i = 0; i < damageNodes.length; i++) {
+          const s = worldToScreen(app, damageNodes[i].position);
+          if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.y)) return null;
+          out.push([(s.x + rect.left) / vw, (s.y + rect.top) / vh]);
+        }
+        return out;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    let chromeHiddenTimer = null;
+    function hideToolChromeForCapture() {
+      overlay.style.visibility = 'hidden';
+      banner.style.visibility = 'hidden';
+      sprintHud.style.visibility = 'hidden';
+      if (chromeHiddenTimer) clearTimeout(chromeHiddenTimer);
+      // Safety net — never leave the pins hidden if the host doesn't answer.
+      chromeHiddenTimer = setTimeout(restoreToolChrome, 4000);
+    }
+
+    function restoreToolChrome() {
+      if (chromeHiddenTimer) clearTimeout(chromeHiddenTimer);
+      chromeHiddenTimer = null;
+      overlay.style.visibility = '';
+      banner.style.visibility = '';
+      sprintHud.style.visibility = '';
     }
 
     function undoDamageBoundaryPoint() {
@@ -1427,6 +1472,7 @@ function vroomkViewerHtml(): string {
       if (data.type === 'undoDamageBoundary') undoDamageBoundaryPoint();
       if (data.type === 'clearDamageBoundary') clearDamageBoundary();
       if (data.type === 'finishDamageBoundary') finishDamageBoundary();
+      if (data.type === 'restoreToolOverlay') restoreToolChrome();
       if (data.type === 'setMeasureFactor' && typeof data.factor === 'number' && data.factor > 0) {
         measureFactor = data.factor;
       }

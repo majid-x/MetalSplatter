@@ -14,10 +14,14 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   })
 }
 
-/** Draw red outlines for damaged regions onto a photo; returns a JPEG data URL. */
+/**
+ * Draw red outlines for damaged regions onto a photo; returns a JPEG data URL.
+ * When `markedArea` is given, the user's marked region is drawn as an orange dashed line too.
+ */
 export async function annotateDamageImage(
   sourceDataUrl: string,
-  outline: DamageOutline | null | undefined
+  outline: DamageOutline | null | undefined,
+  markedArea?: Array<[number, number]> | null
 ): Promise<string> {
   const img = await loadImage(sourceDataUrl)
   const canvas = document.createElement('canvas')
@@ -28,6 +32,22 @@ export async function annotateDamageImage(
 
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
+  if (markedArea && markedArea.length >= 3) {
+    ctx.beginPath()
+    markedArea.forEach(([nx, ny], i) => {
+      const x = clamp01(nx) * canvas.width
+      const y = clamp01(ny) * canvas.height
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.closePath()
+    ctx.strokeStyle = 'rgba(251, 146, 60, 0.95)'
+    ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.004))
+    ctx.setLineDash([10, 6])
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
   const regions = outline?.regions ?? []
   if (regions.length === 0) {
     return canvas.toDataURL('image/jpeg', 0.92)
@@ -37,10 +57,27 @@ export async function annotateDamageImage(
   const fill = 'rgba(239, 68, 68, 0.22)'
   const lineWidth = Math.max(3, Math.round(Math.min(canvas.width, canvas.height) * 0.006))
 
+  const hasMark = Boolean(markedArea && markedArea.length >= 3)
+  const clipToMark = () => {
+    if (!hasMark || !markedArea) return
+    ctx.beginPath()
+    markedArea.forEach(([nx, ny], i) => {
+      const x = clamp01(nx) * canvas.width
+      const y = clamp01(ny) * canvas.height
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.closePath()
+    ctx.clip()
+  }
+
   for (const region of regions) {
     const poly = region.polygon?.filter(
       (pt) => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(pt[0]) && Number.isFinite(pt[1])
     )
+    // Never paint damage outside the user's marked area.
+    ctx.save()
+    clipToMark()
     ctx.beginPath()
     if (poly && poly.length >= 3) {
       poly.forEach(([nx, ny], i) => {
@@ -64,6 +101,7 @@ export async function annotateDamageImage(
     ctx.lineWidth = lineWidth
     ctx.lineJoin = 'round'
     ctx.stroke()
+    ctx.restore()
 
     const label = (region.label || '').trim()
     if (label) {

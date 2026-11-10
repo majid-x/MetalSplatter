@@ -23,7 +23,11 @@ import type {
 import type { CaptureRegionRequest } from '../../shared/captureChannels'
 import type {
   DamageAnalyzeRequest,
-  DamageAnalyzeResponse
+  DamageAnalyzeResponse,
+  DamageProgressEvent,
+  SavedDamageReport,
+  SavedDamageReportInput,
+  SavedDamageReportSummary
 } from '../../shared/damageChannels'
 import type { HttpProxyRequest, HttpProxyResponse } from '../../shared/httpProxyChannels'
 import type { PaymentSessionRequest } from '../../shared/paymentChannels'
@@ -85,6 +89,13 @@ export interface AvgsHttpBridge {
 
 export interface AvgsDamageBridge {
   analyze: (payload: DamageAnalyzeRequest) => Promise<DamageAnalyzeResponse>
+  onProgress: (listener: (payload: DamageProgressEvent) => void) => () => void
+  save: (input: SavedDamageReportInput) => Promise<SavedDamageReportSummary>
+  list: (projectId: string) => Promise<SavedDamageReportSummary[]>
+  load: (projectId: string, reportId: string) => Promise<SavedDamageReport>
+  remove: (projectId: string, reportId: string) => Promise<void>
+  exportPdf: (projectId: string, reportId: string) => Promise<string | null>
+  removeAll: () => Promise<void>
 }
 
 export interface AvgsBridge {

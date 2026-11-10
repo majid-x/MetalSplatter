@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzeDamageFromPhotos } from '../lib/damageEstimation'
+import { analyzeDamageFromPhotos, cleanIpcError, type DamageStage } from '../lib/damageEstimation'
 import { gatherPhotosForDamageBoundary } from '../lib/damagePhotoGather'
+import { buildScopeCrop, type ScopeCrop } from '../lib/damageRoi'
 import { searchPhotos, type PhotoSearchResult } from '../lib/photoSearch'
 import { searchProductsFromImage, type ProductSearchMatch } from '../lib/productSearch'
 import { formatMeasureDistance } from '../lib/formatMeasureDistance'
 import { measurementPrefs } from '../lib/measurementPrefs'
 import type { RemoteProject } from '../projects/types'
 import type { OpenedPackage } from '../../../shared/projectDownloadChannels'
-import type { WallDamageReport } from '../../../shared/wallDamageReport'
+import { formatSqft, formatUsd, type WallDamageReport } from '../../../shared/wallDamageReport'
+import type { SavedDamageReportSummary } from '../../../shared/damageChannels'
 import { DamageReportView } from './DamageReportView'
 import type {
   DamageBoundaryCompleteEvent,
@@ -18,11 +20,32 @@ import type {
 type Tool = 'photos' | 'products' | 'measure' | 'damage'
 
 const DAMAGE_PROGRESS_STEPS = [
-  'Analyzing surface',
-  'Loading images',
-  'Estimating damage',
-  'Doing final checks'
+  'Finding photos of the area',
+  'Mapping your outline onto photos',
+  'Assessing damage',
+  'Outlining damage'
 ] as const
+
+/** Real pipeline stage → progress step (no timers). */
+const DAMAGE_STAGE_STEP: Record<DamageStage, number> = {
+  mapping: 1,
+  assessing: 2,
+  outlining: 3
+}
+
+const SQFT_PER_M2 = 10.7639
+
+function formatReportDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
 
 function VecFields({
   label,
@@ -117,37 +140,101 @@ export function ViewerToolsPanel({
   const [damageReport, setDamageReport] = useState<WallDamageReport | null>(null)
   const [damageAnnotatedImage, setDamageAnnotatedImage] = useState<string | null>(null)
   const [damageAnnotatedImages, setDamageAnnotatedImages] = useState<string[]>([])
+  const [damageReferenceImages, setDamageReferenceImages] = useState<string[]>([])
   const [damageStatus, setDamageStatus] = useState(
     'Mark the damaged area with 3+ corner points, then Finish.'
   )
   const [damageBusy, setDamageBusy] = useState(false)
-  /** 0–3 while estimating; -1 when idle. */
+  /** 0–3 while estimating; -1 when idle. Driven by real pipeline stages. */
   const [damageStepIndex, setDamageStepIndex] = useState(-1)
+  /** Measure factor that applies to the report on screen (saved reports keep their own). */
+  const [damageMeasureFactor, setDamageMeasureFactor] = useState<number | undefined>(undefined)
+  /** Id of the on-disk copy of the report on screen — needed for PDF export. */
+  const [damageSavedId, setDamageSavedId] = useState<string | null>(null)
+  const [damageExporting, setDamageExporting] = useState(false)
+  const [savedReports, setSavedReports] = useState<SavedDamageReportSummary[]>([])
   const damageGenRef = useRef(0)
-  const damageStepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const activeRef = useRef(active)
   activeRef.current = active
 
-  function clearDamageStepTimers() {
-    for (const t of damageStepTimersRef.current) clearTimeout(t)
-    damageStepTimersRef.current = []
+  async function refreshSavedReports() {
+    try {
+      setSavedReports(await window.avgs.damage.list(project.id))
+    } catch {
+      setSavedReports([])
+    }
   }
 
-  function advanceDamageStepsDuringAnalyze(gen: number) {
-    clearDamageStepTimers()
-    // Photos ready → estimating. Final checks while DeepSeek finishes.
-    setDamageStepIndex(2)
-    setDamageStatus(DAMAGE_PROGRESS_STEPS[2])
-    damageStepTimersRef.current = [
-      setTimeout(() => {
-        if (gen !== damageGenRef.current) return
-        setDamageStepIndex(3)
-        setDamageStatus(DAMAGE_PROGRESS_STEPS[3])
-      }, 4200)
-    ]
+  useEffect(() => {
+    void refreshSavedReports()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+
+  function showDamageReport(
+    report: WallDamageReport,
+    images: string[],
+    referenceImages: string[],
+    measureFactor: number | undefined,
+    savedId: string | null
+  ) {
+    setDamageReferenceImages(referenceImages)
+    setDamageReport(report)
+    setDamageAnnotatedImage(images[0] ?? null)
+    setDamageAnnotatedImages(images)
+    setDamageMeasureFactor(measureFactor)
+    setDamageSavedId(savedId)
   }
 
-  useEffect(() => () => clearDamageStepTimers(), [])
+  function closeDamageReport() {
+    damageGenRef.current += 1
+    setDamageReport(null)
+    setDamageAnnotatedImage(null)
+    setDamageAnnotatedImages([])
+    setDamageReferenceImages([])
+    setDamageSavedId(null)
+    setDamageStatus('Mark the damaged area with 3+ corner points, then Finish.')
+    void refreshSavedReports()
+  }
+
+  async function openSavedReport(reportId: string) {
+    const gen = ++damageGenRef.current
+    try {
+      const saved = await window.avgs.damage.load(project.id, reportId)
+      if (gen !== damageGenRef.current) return
+      showDamageReport(
+        saved.report,
+        saved.annotatedImageDataUrls,
+        saved.referenceImageDataUrls ?? [],
+        saved.measureFactor,
+        saved.id
+      )
+      setDamageStatus(`Saved report · ${formatReportDate(saved.createdAt)}`)
+    } catch (error) {
+      setDamageStatus(cleanIpcError(error, 'Could not open that report.'))
+    }
+  }
+
+  async function deleteSavedReport(reportId: string) {
+    if (!window.confirm('Delete this saved damage report?')) return
+    try {
+      await window.avgs.damage.remove(project.id, reportId)
+    } finally {
+      void refreshSavedReports()
+    }
+  }
+
+  async function exportDamagePdf() {
+    if (!damageSavedId) return
+    setDamageExporting(true)
+    try {
+      const path = await window.avgs.damage.exportPdf(project.id, damageSavedId)
+      if (path) setDamageStatus('PDF exported')
+    } catch (error) {
+      setDamageStatus(cleanIpcError(error, 'Could not export the PDF.'))
+    } finally {
+      setDamageExporting(false)
+    }
+  }
 
   useEffect(() => {
     if (!lastPick) return
@@ -175,7 +262,10 @@ export function ViewerToolsPanel({
     void runDamageEstimationForBoundary(
       event.points,
       event.camera,
-      event.regionScreenshot ?? null
+      event.regionScreenshot ?? null,
+      event.cleanViewDataUrl && event.regionPolygon
+        ? { frame: event.cleanViewDataUrl, polygon: event.regionPolygon }
+        : null
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [damageBoundaryComplete?.id])
@@ -194,26 +284,34 @@ export function ViewerToolsPanel({
   async function runDamageEstimationForBoundary(
     boundary: Array<[number, number, number]>,
     cam: [number, number, number],
-    regionGuideImageDataUrl?: string | null
+    regionGuideImageDataUrl?: string | null,
+    scopeSource?: { frame: string; polygon: Array<[number, number]> } | null
   ) {
     if (!project.photoAPIBaseURL) return
     const gen = ++damageGenRef.current
-    clearDamageStepTimers()
+    const setStep = (index: number) => {
+      if (gen !== damageGenRef.current) return
+      setDamageStepIndex(index)
+      setDamageStatus(DAMAGE_PROGRESS_STEPS[index])
+    }
     setDamageBusy(true)
     setDamageReport(null)
     setDamageAnnotatedImage(null)
     setDamageAnnotatedImages([])
-    setDamageStepIndex(0)
-    setDamageStatus(DAMAGE_PROGRESS_STEPS[0])
+    setDamageReferenceImages([])
+    setDamageSavedId(null)
+    setStep(0)
+    const measureFactor = project.hasMeasureFactor ? project.measureFactor : undefined
     try {
-      // Brief surface pass, then keep that step lit while loading images.
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, 650)
-        damageStepTimersRef.current.push(t)
-      })
-      if (gen !== damageGenRef.current) return
-      setDamageStepIndex(1)
-      setDamageStatus(DAMAGE_PROGRESS_STEPS[1])
+      // Exact crop of what the user marked — this is what defines the scope.
+      let scope: ScopeCrop | null = null
+      if (scopeSource) {
+        try {
+          scope = await buildScopeCrop(scopeSource.frame, scopeSource.polygon)
+        } catch {
+          scope = null
+        }
+      }
       const gathered = await gatherPhotosForDamageBoundary({
         baseURL: project.photoAPIBaseURL,
         boundary,
@@ -224,44 +322,72 @@ export function ViewerToolsPanel({
       })
       if (gen !== damageGenRef.current) return
       if (gathered.photos.length === 0) {
-        clearDamageStepTimers()
         setDamageStepIndex(-1)
-        setDamageStatus('Could not inspect that area. Try marking again.')
+        setDamageStatus('No photos of that area were found. Try marking it again.')
         return
       }
-      advanceDamageStepsDuringAnalyze(gen)
+      // Real area of the 3D outline — only meaningful when the scan is calibrated.
+      const measuredAreaSqft =
+        measureFactor && gathered.areaM2 > 0 ? gathered.areaM2 * SQFT_PER_M2 : undefined
       const analysis = await analyzeDamageFromPhotos(gathered.photos, {
         projectName: project.name,
-        measureFactor: project.measureFactor,
-        regionGuideImageDataUrl
+        measureFactor,
+        measuredAreaSqft,
+        regionGuideImageDataUrl,
+        roiProjection: {
+          baseURL: project.photoAPIBaseURL,
+          boundary,
+          useSPZCoordinates: project.isSPZ,
+          useServerCalibration: project.useServerCalibration
+        },
+        scope,
+        onStage: (stage) => setStep(DAMAGE_STAGE_STEP[stage])
       })
+      if (analysis.scopeMethod === 'guide-only') {
+        console.warn('[damage] marked area could not be enforced exactly (no photo mapping, no view crop)')
+      }
       if (gen !== damageGenRef.current) return
-      clearDamageStepTimers()
-      setDamageStepIndex(DAMAGE_PROGRESS_STEPS.length - 1)
-      setDamageReport(analysis.report)
-      setDamageAnnotatedImage(analysis.annotatedImageDataUrl)
-      setDamageAnnotatedImages(analysis.annotatedImageDataUrls)
-      setDamageStatus('Report ready')
+
+      // Save automatically so the report survives closing the panel and can be exported.
+      let savedId: string | null = null
+      try {
+        const saved = await window.avgs.damage.save({
+          projectId: project.id,
+          projectName: project.name,
+          report: analysis.report,
+          annotatedImageDataUrls: analysis.annotatedImageDataUrls,
+          referenceImageDataUrls: analysis.referenceImageDataUrls,
+          measureFactor
+        })
+        savedId = saved.id
+        void refreshSavedReports()
+      } catch {
+        // Report still shows; it just can't be exported until saved.
+      }
+      if (gen !== damageGenRef.current) return
+      showDamageReport(
+        analysis.report,
+        analysis.annotatedImageDataUrls,
+        analysis.referenceImageDataUrls,
+        measureFactor,
+        savedId
+      )
+      setDamageStatus(savedId ? 'Report ready · saved' : 'Report ready · could not save a copy')
     } catch (error) {
       if (gen !== damageGenRef.current) return
-      clearDamageStepTimers()
-      setDamageStepIndex(-1)
       setDamageReport(null)
       setDamageAnnotatedImage(null)
       setDamageAnnotatedImages([])
-      const raw =
-        error instanceof Error ? error.message : 'Damage estimation failed.'
+      setDamageReferenceImages([])
+      const message = cleanIpcError(error, 'Damage estimation failed.')
       // Never surface the photo-search backend wording to the user.
       setDamageStatus(
-        /photo|search api|deepseek|syntaxerror|json|invoking remote|avgs:damage/i.test(
-          raw
-        )
-          ? 'Could not complete damage estimation. Try marking the area again.'
-          : raw
+        /photo api|search api|404|syntaxerror|unexpected token/i.test(message)
+          ? 'Could not load photos of that area. Try marking it again.'
+          : message
       )
     } finally {
       if (gen === damageGenRef.current) {
-        clearDamageStepTimers()
         setDamageBusy(false)
         setDamageStepIndex(-1)
       }
@@ -394,15 +520,13 @@ export function ViewerToolsPanel({
               <div className="product-mac-empty">
                 <p>Damage estimation is not available for this project.</p>
               </div>
-            ) : damageBusy && !damageReport ? (
+            ) : damageBusy ? (
               <div className="damage-progress">
                 <div className="damage-progress-head">
                   <p className="damage-progress-title">{damageStatus}</p>
                   <span className="damage-progress-pct">
                     {Math.round(
-                      ((Math.max(0, damageStepIndex) + 1) /
-                        DAMAGE_PROGRESS_STEPS.length) *
-                        100
+                      ((Math.max(0, damageStepIndex) + 1) / DAMAGE_PROGRESS_STEPS.length) * 100
                     )}
                     %
                   </span>
@@ -412,9 +536,7 @@ export function ViewerToolsPanel({
                     className="progress-fill damage-progress-fill"
                     style={{
                       width: `${
-                        ((Math.max(0, damageStepIndex) + 1) /
-                          DAMAGE_PROGRESS_STEPS.length) *
-                        100
+                        ((Math.max(0, damageStepIndex) + 1) / DAMAGE_PROGRESS_STEPS.length) * 100
                       }%`
                     }}
                   />
@@ -426,9 +548,9 @@ export function ViewerToolsPanel({
                     return (
                       <li
                         key={label}
-                        className={`damage-progress-step${
-                          done ? ' done' : ''
-                        }${current ? ' current' : ''}`}
+                        className={`damage-progress-step${done ? ' done' : ''}${
+                          current ? ' current' : ''
+                        }`}
                       >
                         <span className="damage-progress-dot" aria-hidden />
                         <span>{label}</span>
@@ -437,21 +559,72 @@ export function ViewerToolsPanel({
                   })}
                 </ol>
               </div>
-            ) : !damageReport ? (
-              <div className="product-mac-empty">
-                <p>
-                  {damageStatus ||
-                    'Mark the damaged area with 3+ corner points, then Finish.'}
-                </p>
-              </div>
-            ) : (
+            ) : damageReport ? (
               <>
+                <div className="damage-actions">
+                  <button
+                    type="button"
+                    className="damage-action-btn"
+                    onClick={() => void exportDamagePdf()}
+                    disabled={!damageSavedId || damageExporting}
+                  >
+                    {damageExporting ? 'Exporting…' : 'Export PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    className="damage-action-btn ghost"
+                    onClick={closeDamageReport}
+                  >
+                    Saved reports{savedReports.length ? ` (${savedReports.length})` : ''}
+                  </button>
+                </div>
                 <DamageReportView
                   report={damageReport}
                   annotatedImageDataUrl={damageAnnotatedImage}
                   annotatedImageDataUrls={damageAnnotatedImages}
-                  measureFactor={project.measureFactor}
+                  referenceImageDataUrls={damageReferenceImages}
+                  measureFactor={damageMeasureFactor}
                 />
+              </>
+            ) : (
+              <>
+                <div className="product-mac-empty">
+                  <p>{damageStatus || 'Mark the damaged area with 3+ corner points, then Finish.'}</p>
+                </div>
+                {savedReports.length > 0 ? (
+                  <section className="damage-saved">
+                    <h3>Saved reports</h3>
+                    <ul>
+                      {savedReports.map((saved) => (
+                        <li key={saved.id}>
+                          <button
+                            type="button"
+                            className="damage-saved-open"
+                            onClick={() => void openSavedReport(saved.id)}
+                          >
+                            <span className="damage-saved-date">
+                              {formatReportDate(saved.createdAt)}
+                            </span>
+                            <span className="damage-saved-meta">
+                              {saved.severity} · {formatSqft(saved.areaSqft)} sq ft ·{' '}
+                              {saved.maxTotal > 0
+                                ? `${formatUsd(saved.minTotal)}–${formatUsd(saved.maxTotal)}`
+                                : 'no cost'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="damage-saved-delete"
+                            aria-label="Delete saved report"
+                            onClick={() => void deleteSavedReport(saved.id)}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
               </>
             )}
           </div>

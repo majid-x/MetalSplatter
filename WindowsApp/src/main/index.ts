@@ -4,6 +4,7 @@ import { join } from 'path'
 import { registerAuthStorageIpc } from './authStorage'
 import { registerBookingProxyIpc } from './bookingProxy'
 import { registerDamageIpc } from './deepseekDamage'
+import { registerDamageReportsIpc } from './damageReports'
 import { registerHttpProxyIpc } from './httpProxy'
 import { loadEnvFile } from './loadEnv'
 import { registerProjectDownloadIpc } from './projectDownloadIpc'
@@ -28,6 +29,7 @@ function registerIpc(): void {
   registerBookingProxyIpc()
   registerHttpProxyIpc()
   registerDamageIpc()
+  registerDamageReportsIpc()
 
   handle(VIEWER_CHANNELS.origin, async () => getMediaServerOrigin())
   handle(VIEWER_CHANNELS.buildUrl, async (_event, options) => buildViewerUrl(options))

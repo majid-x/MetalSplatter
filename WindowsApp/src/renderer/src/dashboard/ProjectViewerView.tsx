@@ -372,17 +372,23 @@ export function ProjectViewerView({
               }}
               onDamageBoundaryComplete={(event) => {
                 void (async () => {
-                  // Let the amber fill paint, then capture the viewer (guide for DeepSeek).
+                  // The viewer hid its pins/banner — wait two frames, then capture a CLEAN
+                  // frame of the marked area (the damage itself, not the orange overlay).
+                  // Also hide our own controls that float over the 3D view.
+                  if (event.regionPolygon) document.body.classList.add('damage-capturing')
                   await new Promise<void>((resolve) =>
                     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
                   )
-                  let regionScreenshot = event.regionScreenshot ?? null
+                  const regionScreenshot = event.regionScreenshot ?? null
+                  let cleanViewDataUrl: string | null = null
                   try {
-                    const wrap = document.querySelector('.viewer-canvas-wrap')
-                    if (wrap) {
-                      const r = wrap.getBoundingClientRect()
+                    const frame =
+                      document.querySelector('.viewer-canvas-wrap iframe') ??
+                      document.querySelector('.viewer-canvas-wrap')
+                    if (frame && event.regionPolygon) {
+                      const r = frame.getBoundingClientRect()
                       if (r.width > 8 && r.height > 8) {
-                        regionScreenshot = await window.avgs.capture.region({
+                        cleanViewDataUrl = await window.avgs.capture.region({
                           x: r.left,
                           y: r.top,
                           width: r.width,
@@ -391,12 +397,16 @@ export function ProjectViewerView({
                       }
                     }
                   } catch {
-                    // Keep iframe canvas composite if desktop capture fails.
+                    // Falls back to photo-only scoping.
+                  } finally {
+                    document.body.classList.remove('damage-capturing')
+                    damageBoundaryCommandsRef.current?.restoreOverlay()
                   }
                   damageBoundarySeqRef.current += 1
                   setDamageBoundaryComplete({
                     ...event,
                     regionScreenshot,
+                    cleanViewDataUrl,
                     id: damageBoundarySeqRef.current
                   })
                   setActiveTool('damage')

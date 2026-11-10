@@ -6,7 +6,10 @@ export type RemoteProject = {
   photoAPIBaseURL: string | null
   isSPZ: boolean
   useServerCalibration: boolean
+  /** scene_units × measureFactor = meters. 1 when the project has no calibration. */
   measureFactor: number
+  /** True only when the DB has a real measur_factor (not the default 1). */
+  hasMeasureFactor: boolean
   moveSpeed: number | null
   createdAt: string | null
 }
@@ -45,8 +48,9 @@ export function mapProjectRow(row: ProjectRow): RemoteProject {
     }
   }
 
-  const measureFactor =
-    typeof row.measur_factor === 'number' && row.measur_factor > 0 ? row.measur_factor : 1
+  const hasMeasureFactor =
+    typeof row.measur_factor === 'number' && Number.isFinite(row.measur_factor) && row.measur_factor > 0
+  const measureFactor = hasMeasureFactor ? (row.measur_factor as number) : 1
   const moveSpeed =
     typeof row.move_speed === 'number' && row.move_speed > 0 ? row.move_speed : null
 
@@ -59,6 +63,7 @@ export function mapProjectRow(row: ProjectRow): RemoteProject {
     isSPZ: row.spz === true,
     useServerCalibration: row.calibration === true,
     measureFactor,
+    hasMeasureFactor,
     moveSpeed,
     createdAt: row.created_at ?? null
   }

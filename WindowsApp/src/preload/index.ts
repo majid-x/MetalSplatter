@@ -16,7 +16,11 @@ import { CAPTURE_CHANNELS, type CaptureRegionRequest } from '../shared/captureCh
 import {
   DAMAGE_CHANNELS,
   type DamageAnalyzeRequest,
-  type DamageAnalyzeResponse
+  type DamageAnalyzeResponse,
+  type DamageProgressEvent,
+  type SavedDamageReport,
+  type SavedDamageReportInput,
+  type SavedDamageReportSummary
 } from '../shared/damageChannels'
 import { HTTP_PROXY_CHANNELS, type HttpProxyRequest, type HttpProxyResponse } from '../shared/httpProxyChannels'
 import { PAYMENT_CHANNELS, type PaymentSessionRequest } from '../shared/paymentChannels'
@@ -108,7 +112,24 @@ const files = {
 
 const damage = {
   analyze: (payload: DamageAnalyzeRequest): Promise<DamageAnalyzeResponse> =>
-    ipcRenderer.invoke(DAMAGE_CHANNELS.analyze, payload)
+    ipcRenderer.invoke(DAMAGE_CHANNELS.analyze, payload),
+  onProgress: (listener: (payload: DamageProgressEvent) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, payload: DamageProgressEvent): void =>
+      listener(payload)
+    ipcRenderer.on(DAMAGE_CHANNELS.progressEvent, handler)
+    return () => ipcRenderer.removeListener(DAMAGE_CHANNELS.progressEvent, handler)
+  },
+  save: (input: SavedDamageReportInput): Promise<SavedDamageReportSummary> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.saveReport, input),
+  list: (projectId: string): Promise<SavedDamageReportSummary[]> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.listReports, projectId),
+  load: (projectId: string, reportId: string): Promise<SavedDamageReport> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.loadReport, projectId, reportId),
+  remove: (projectId: string, reportId: string): Promise<void> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.deleteReport, projectId, reportId),
+  exportPdf: (projectId: string, reportId: string): Promise<string | null> =>
+    ipcRenderer.invoke(DAMAGE_CHANNELS.exportPdf, projectId, reportId),
+  removeAll: (): Promise<void> => ipcRenderer.invoke(DAMAGE_CHANNELS.removeAllReports)
 }
 
 contextBridge.exposeInMainWorld('avgs', {
