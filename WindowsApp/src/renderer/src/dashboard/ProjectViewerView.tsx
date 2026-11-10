@@ -6,6 +6,8 @@ import { useDownloads } from '../projects/DownloadContext'
 import type { RemoteProject } from '../projects/types'
 import {
   SuperSplatViewer,
+  type DamageBoundaryCommands,
+  type DamageBoundaryCompleteEvent,
   type MeasureCommands,
   type MeasureStateEvent,
   type ViewerPickEvent,
@@ -110,6 +112,12 @@ export function ProjectViewerView({
   const [measureStatus, setMeasureStatus] = useState('Measure off')
   const [measureDeleteMode, setMeasureDeleteMode] = useState(false)
   const measureCommandsRef = useRef<MeasureCommands | null>(null)
+  const damageBoundaryCommandsRef = useRef<DamageBoundaryCommands | null>(null)
+  const damageBoundarySeqRef = useRef(0)
+  const [damageBoundaryPointCount, setDamageBoundaryPointCount] = useState(0)
+  const [damageBoundaryComplete, setDamageBoundaryComplete] = useState<DamageBoundaryCompleteEvent | null>(
+    null
+  )
   const [savingShot, setSavingShot] = useState(false)
   const [viewerError, setViewerError] = useState<string | null>(null)
   const [showSidePanel, setShowSidePanel] = useState(false)
@@ -207,13 +215,17 @@ export function ProjectViewerView({
   function setDamageOn(enabled: boolean) {
     clearModes()
     dismissMeasureTool()
+    setDamageBoundaryComplete(null)
+    setDamageBoundaryPointCount(0)
     if (enabled) {
       setActiveTool('damage')
       setPickMode('damage')
       setShowSidePanel(true)
-      setToolHint('Damage Estimation on · click a wall surface · drag to look')
+      setToolHint('Mark damage corners · 3+ points · Finish · drag to look')
     } else {
+      damageBoundaryCommandsRef.current?.clear()
       setActiveTool(null)
+      setPickMode(null)
       setShowSidePanel(false)
       setToolHint(DEFAULT_HINT)
     }
@@ -351,8 +363,47 @@ export function ProjectViewerView({
               measureFactor={project.measureFactor}
               moveSpeed={project.moveSpeed}
               measureCommandsRef={measureCommandsRef}
+              damageBoundaryCommandsRef={damageBoundaryCommandsRef}
               onPick={onPick}
               onMeasureState={onMeasureState}
+              onDamageBoundaryState={(event) => {
+                setDamageBoundaryPointCount(event.pointCount)
+                if (event.status) setToolHint(event.status)
+              }}
+              onDamageBoundaryComplete={(event) => {
+                void (async () => {
+                  // Let the amber fill paint, then capture the viewer (guide for DeepSeek).
+                  await new Promise<void>((resolve) =>
+                    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+                  )
+                  let regionScreenshot = event.regionScreenshot ?? null
+                  try {
+                    const wrap = document.querySelector('.viewer-canvas-wrap')
+                    if (wrap) {
+                      const r = wrap.getBoundingClientRect()
+                      if (r.width > 8 && r.height > 8) {
+                        regionScreenshot = await window.avgs.capture.region({
+                          x: r.left,
+                          y: r.top,
+                          width: r.width,
+                          height: r.height
+                        })
+                      }
+                    }
+                  } catch {
+                    // Keep iframe canvas composite if desktop capture fails.
+                  }
+                  damageBoundarySeqRef.current += 1
+                  setDamageBoundaryComplete({
+                    ...event,
+                    regionScreenshot,
+                    id: damageBoundarySeqRef.current
+                  })
+                  setActiveTool('damage')
+                  setShowSidePanel(true)
+                  setToolHint('Damage area marked · analyzing…')
+                })()
+              }}
               onSprintState={setSprinting}
               onViewerError={setViewerError}
             />
@@ -404,6 +455,38 @@ export function ProjectViewerView({
                   {activeTool === 'damage' ? 'Damage On' : 'Damage Estimate'}
                   {activeTool === 'damage' && <span className="rail-dot orange" />}
                 </button>
+              )}
+
+              {activeTool === 'damage' && (
+                <div className="viewer-rail-subrow">
+                  <button
+                    type="button"
+                    className="viewer-rail-sub"
+                    disabled={damageBoundaryPointCount < 3}
+                    onClick={() => damageBoundaryCommandsRef.current?.finish()}
+                  >
+                    Finish
+                  </button>
+                  <button
+                    type="button"
+                    className="viewer-rail-sub"
+                    onClick={() => damageBoundaryCommandsRef.current?.undo()}
+                  >
+                    Undo
+                  </button>
+                  <button
+                    type="button"
+                    className="viewer-rail-sub danger"
+                    onClick={() => {
+                      damageBoundaryCommandsRef.current?.clear()
+                      setDamageBoundaryComplete(null)
+                      setDamageBoundaryPointCount(0)
+                      setToolHint('Mark damage corners · 3+ points · Finish · drag to look')
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               )}
 
               <button
@@ -520,10 +603,14 @@ export function ProjectViewerView({
               packageInfo={opened}
               active={activeTool}
               onClose={() => {
-                setShowSidePanel(false)
                 setPendingProductDataUrl(null)
-                if (activeTool === 'photos') setPhotosOn(false)
-                else {
+                if (activeTool === 'photos') {
+                  setPhotosOn(false)
+                } else if (activeTool === 'damage') {
+                  // Close panel + leave tool + wipe the marked orange boundary in-view.
+                  setDamageOn(false)
+                } else {
+                  setShowSidePanel(false)
                   setActiveTool(null)
                   setToolHint(DEFAULT_HINT)
                 }
@@ -531,6 +618,8 @@ export function ProjectViewerView({
               pickMode={pickMode}
               onPickModeChange={setPickMode}
               lastPick={lastPick}
+              damageBoundaryComplete={damageBoundaryComplete}
+              onDamageBoundaryConsumed={() => setDamageBoundaryComplete(null)}
               pendingProductDataUrl={pendingProductDataUrl}
               onPendingProductConsumed={() => setPendingProductDataUrl(null)}
               onRequestScreenshot={() => {

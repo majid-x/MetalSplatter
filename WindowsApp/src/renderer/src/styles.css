@@ -2138,6 +2138,101 @@ h1 {
   padding: 0 2px 20px;
 }
 
+.damage-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 12px 8px;
+}
+
+.damage-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.damage-progress-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.damage-progress-pct {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: Consolas, "Courier New", monospace;
+  color: rgba(251, 146, 60, 0.95);
+}
+
+.damage-progress-track {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.damage-progress-fill {
+  background: linear-gradient(90deg, rgb(249, 115, 22), rgb(251, 146, 60));
+  transition: width 0.45s ease;
+}
+
+.damage-progress-steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.damage-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.32);
+  transition: color 0.2s ease;
+}
+
+.damage-progress-step.done {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.damage-progress-step.current {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 500;
+}
+
+.damage-progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.damage-progress-step.done .damage-progress-dot {
+  background: rgb(251, 146, 60);
+  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.28);
+}
+
+.damage-progress-step.current .damage-progress-dot {
+  background: rgb(251, 146, 60);
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.22);
+  animation: damage-progress-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes damage-progress-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.3);
+  }
+}
+
 .damage-report {
   display: flex;
   flex-direction: column;
@@ -2151,6 +2246,14 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.damage-hero.multi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
 .damage-outline-image {
   display: block;
   width: 100%;
@@ -2158,6 +2261,12 @@ h1 {
   max-height: 220px;
   object-fit: contain;
   background: #080808;
+}
+
+.damage-hero.multi .damage-outline-image {
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .damage-hero-stats {

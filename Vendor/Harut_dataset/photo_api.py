@@ -17,7 +17,7 @@ COLMAP files may be binary (.bin) or text (.txt); camera model may be pinhole or
 equirectangular (model 17). Images may be EXR or JPG/PNG in nested subfolders.
 """
 
-import os, re, json, base64, logging, struct
+import os, re, json, base64, logging, struct, math
 from typing import Optional, List
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"  # must be before cv2 import
@@ -752,6 +752,12 @@ class QueryReq(BaseModel):
     # Bounds the expensive occlusion test in scenes with thousands of frames.
     max_cameras:        int   = 300
 
+class ProjectReq(BaseModel):
+    """Project 3D points (client/COLMAP frame) onto one photo for ROI mapping."""
+    image_id: int
+    points: List[List[float]]  # [[x,y,z], ...]
+
+
 class CalAddReq(BaseModel):
     label:      str
     splat_xyz:  List[float]
@@ -778,6 +784,75 @@ def health():
             "image_files_found": len(_image_file_map),
             "calibration_pairs": len(_cal_pairs),
             "calibration_active": _cal_transform is not None}
+
+@app.post("/project")
+def project_points(req: ProjectReq):
+    """Map a 3D polyline/polygon onto one image as normalized UV (0–1).
+
+    Used by Damage Estimation so outlines stay inside the user-marked region.
+    """
+    img = images.get(int(req.image_id))
+    if not img:
+        return {"ok": False, "error": "image not found", "image_id": req.image_id, "points": []}
+    cam = cameras.get(img["cam_id"])
+    if not cam:
+        return {"ok": False, "error": "camera not found", "image_id": req.image_id, "points": []}
+
+    R = img["R"]
+    t = img["t"]
+    W = float(cam.get("w") or 1.0)
+    H = float(cam.get("h") or 1.0)
+    equirect = bool(cam.get("equirect"))
+    fx = float(cam.get("fx") or 0.0)
+    fy = float(cam.get("fy") or fx)
+    cx = float(cam.get("cx") or (W * 0.5))
+    cy = float(cam.get("cy") or (H * 0.5))
+
+    out = []
+    for raw in req.points or []:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+            out.append({"ok": False, "u": 0.0, "v": 0.0, "x": 0.0, "y": 0.0})
+            continue
+        x, y, z = _apply_transform(float(raw[0]), float(raw[1]), float(raw[2]))
+        pw = np.array([x, y, z], dtype=np.float64)
+        pc = (R @ pw) + t
+        X, Y, Z = float(pc[0]), float(pc[1]), float(pc[2])
+        if equirect:
+            r = math.sqrt(X * X + Y * Y + Z * Z)
+            if r <= 1e-9:
+                out.append({"ok": False, "u": 0.0, "v": 0.0, "x": 0.0, "y": 0.0})
+                continue
+            lon = math.atan2(X, Z)
+            lat = math.atan2(Y, math.hypot(X, Z))
+            u = (lon / (2 * math.pi) + 0.5) * W
+            v = (0.5 + lat / math.pi) * H
+            ok = True
+        else:
+            if Z <= 0.01:
+                out.append({"ok": False, "u": 0.0, "v": 0.0, "x": 0.0, "y": 0.0})
+                continue
+            u = fx * (X / Z) + cx
+            v = fy * (Y / Z) + cy
+            # Allow slight off-frame verts (still useful for ROI hull); mark ok if near frame.
+            ok = (-0.15 * W) <= u <= (1.15 * W) and (-0.15 * H) <= v <= (1.15 * H)
+        out.append({
+            "ok": bool(ok),
+            "u": round(u, 2),
+            "v": round(v, 2),
+            "x": round(max(0.0, min(1.0, u / max(W, 1.0))), 5),
+            "y": round(max(0.0, min(1.0, v / max(H, 1.0))), 5),
+        })
+
+    valid = [p for p in out if p.get("ok")]
+    return {
+        "ok": len(valid) >= 3,
+        "image_id": int(req.image_id),
+        "width": int(W),
+        "height": int(H),
+        "equirect": equirect,
+        "points": out,
+        "valid_count": len(valid),
+    }
 
 @app.post("/query")
 def query(req: QueryReq):

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  analyzeDamageFromPhotos,
-  DAMAGE_PHOTO_COUNT
-} from '../lib/damageEstimation'
+import { analyzeDamageFromPhotos } from '../lib/damageEstimation'
+import { gatherPhotosForDamageBoundary } from '../lib/damagePhotoGather'
 import { searchPhotos, type PhotoSearchResult } from '../lib/photoSearch'
 import { searchProductsFromImage, type ProductSearchMatch } from '../lib/productSearch'
 import { formatMeasureDistance } from '../lib/formatMeasureDistance'
@@ -11,9 +9,20 @@ import type { RemoteProject } from '../projects/types'
 import type { OpenedPackage } from '../../../shared/projectDownloadChannels'
 import type { WallDamageReport } from '../../../shared/wallDamageReport'
 import { DamageReportView } from './DamageReportView'
-import type { ViewerPickEvent, ViewerPickMode } from './SuperSplatViewer'
+import type {
+  DamageBoundaryCompleteEvent,
+  ViewerPickEvent,
+  ViewerPickMode
+} from './SuperSplatViewer'
 
 type Tool = 'photos' | 'products' | 'measure' | 'damage'
+
+const DAMAGE_PROGRESS_STEPS = [
+  'Analyzing surface',
+  'Loading images',
+  'Estimating damage',
+  'Doing final checks'
+] as const
 
 function VecFields({
   label,
@@ -64,6 +73,8 @@ export function ViewerToolsPanel({
   pickMode,
   onPickModeChange,
   lastPick,
+  damageBoundaryComplete = null,
+  onDamageBoundaryConsumed,
   onRequestScreenshot,
   pendingProductDataUrl = null,
   onPendingProductConsumed
@@ -75,6 +86,8 @@ export function ViewerToolsPanel({
   pickMode: ViewerPickMode
   onPickModeChange: (mode: ViewerPickMode) => void
   lastPick: (ViewerPickEvent & { id: number }) | null
+  damageBoundaryComplete?: DamageBoundaryCompleteEvent | null
+  onDamageBoundaryConsumed?: () => void
   onRequestScreenshot: () => void
   /** Stable data URL of the crop from Select from view (Mac-style query image). */
   pendingProductDataUrl?: string | null
@@ -103,21 +116,42 @@ export function ViewerToolsPanel({
 
   const [damageReport, setDamageReport] = useState<WallDamageReport | null>(null)
   const [damageAnnotatedImage, setDamageAnnotatedImage] = useState<string | null>(null)
+  const [damageAnnotatedImages, setDamageAnnotatedImages] = useState<string[]>([])
   const [damageStatus, setDamageStatus] = useState(
-    'Click a wall surface to estimate damage.'
+    'Mark the damaged area with 3+ corner points, then Finish.'
   )
   const [damageBusy, setDamageBusy] = useState(false)
+  /** 0–3 while estimating; -1 when idle. */
+  const [damageStepIndex, setDamageStepIndex] = useState(-1)
   const damageGenRef = useRef(0)
+  const damageStepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const activeRef = useRef(active)
   activeRef.current = active
 
+  function clearDamageStepTimers() {
+    for (const t of damageStepTimersRef.current) clearTimeout(t)
+    damageStepTimersRef.current = []
+  }
+
+  function advanceDamageStepsDuringAnalyze(gen: number) {
+    clearDamageStepTimers()
+    // Photos ready → estimating. Final checks while DeepSeek finishes.
+    setDamageStepIndex(2)
+    setDamageStatus(DAMAGE_PROGRESS_STEPS[2])
+    damageStepTimersRef.current = [
+      setTimeout(() => {
+        if (gen !== damageGenRef.current) return
+        setDamageStepIndex(3)
+        setDamageStatus(DAMAGE_PROGRESS_STEPS[3])
+      }, 4200)
+    ]
+  }
+
+  useEffect(() => () => clearDamageStepTimers(), [])
+
   useEffect(() => {
     if (!lastPick) return
-    if (lastPick.mode === 'damage') {
-      setPoint(lastPick.point)
-      setCamera(lastPick.camera)
-      void runDamageEstimation(lastPick.point, lastPick.camera)
-    } else if (lastPick.mode === 'photos') {
+    if (lastPick.mode === 'photos') {
       setPoint(lastPick.point)
       setCamera(lastPick.camera)
       void runPhotoSearch(lastPick.point, lastPick.camera, false)
@@ -132,6 +166,20 @@ export function ViewerToolsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPick?.id])
 
+  useEffect(() => {
+    if (!damageBoundaryComplete) return
+    const event = damageBoundaryComplete
+    onDamageBoundaryConsumed?.()
+    setCamera(event.camera)
+    if (event.points[0]) setPoint(event.points[0])
+    void runDamageEstimationForBoundary(
+      event.points,
+      event.camera,
+      event.regionScreenshot ?? null
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [damageBoundaryComplete?.id])
+
   const distanceLabel = useMemo(() => {
     const dx = (b[0] - a[0]) * project.measureFactor
     const dy = (b[1] - a[1]) * project.measureFactor
@@ -143,40 +191,64 @@ export function ViewerToolsPanel({
     }
   }, [a, b, project.measureFactor, exact])
 
-  async function runDamageEstimation(
-    queryPoint = point,
-    cam = camera
+  async function runDamageEstimationForBoundary(
+    boundary: Array<[number, number, number]>,
+    cam: [number, number, number],
+    regionGuideImageDataUrl?: string | null
   ) {
     if (!project.photoAPIBaseURL) return
     const gen = ++damageGenRef.current
+    clearDamageStepTimers()
     setDamageBusy(true)
     setDamageReport(null)
     setDamageAnnotatedImage(null)
-    setDamageStatus('Inspecting surface…')
+    setDamageAnnotatedImages([])
+    setDamageStepIndex(0)
+    setDamageStatus(DAMAGE_PROGRESS_STEPS[0])
     try {
-      const photoResponse = await searchPhotos({
+      // Brief surface pass, then keep that step lit while loading images.
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, 650)
+        damageStepTimersRef.current.push(t)
+      })
+      if (gen !== damageGenRef.current) return
+      setDamageStepIndex(1)
+      setDamageStatus(DAMAGE_PROGRESS_STEPS[1])
+      const gathered = await gatherPhotosForDamageBoundary({
         baseURL: project.photoAPIBaseURL,
-        point: queryPoint,
+        boundary,
         cameraPosition: cam,
+        measureFactor: project.measureFactor,
         useSPZCoordinates: project.isSPZ,
-        useServerCalibration: project.useServerCalibration,
-        maxResults: DAMAGE_PHOTO_COUNT,
-        offset: 0
+        useServerCalibration: project.useServerCalibration
       })
       if (gen !== damageGenRef.current) return
-      setDamageStatus('Analyzing damage…')
-      const analysis = await analyzeDamageFromPhotos(photoResponse.photos, {
+      if (gathered.photos.length === 0) {
+        clearDamageStepTimers()
+        setDamageStepIndex(-1)
+        setDamageStatus('Could not inspect that area. Try marking again.')
+        return
+      }
+      advanceDamageStepsDuringAnalyze(gen)
+      const analysis = await analyzeDamageFromPhotos(gathered.photos, {
         projectName: project.name,
-        measureFactor: project.measureFactor
+        measureFactor: project.measureFactor,
+        regionGuideImageDataUrl
       })
       if (gen !== damageGenRef.current) return
+      clearDamageStepTimers()
+      setDamageStepIndex(DAMAGE_PROGRESS_STEPS.length - 1)
       setDamageReport(analysis.report)
       setDamageAnnotatedImage(analysis.annotatedImageDataUrl)
+      setDamageAnnotatedImages(analysis.annotatedImageDataUrls)
       setDamageStatus('Report ready')
     } catch (error) {
       if (gen !== damageGenRef.current) return
+      clearDamageStepTimers()
+      setDamageStepIndex(-1)
       setDamageReport(null)
       setDamageAnnotatedImage(null)
+      setDamageAnnotatedImages([])
       const raw =
         error instanceof Error ? error.message : 'Damage estimation failed.'
       // Never surface the photo-search backend wording to the user.
@@ -184,11 +256,15 @@ export function ViewerToolsPanel({
         /photo|search api|deepseek|syntaxerror|json|invoking remote|avgs:damage/i.test(
           raw
         )
-          ? 'Could not complete damage estimation. Try another point.'
+          ? 'Could not complete damage estimation. Try marking the area again.'
           : raw
       )
     } finally {
-      if (gen === damageGenRef.current) setDamageBusy(false)
+      if (gen === damageGenRef.current) {
+        clearDamageStepTimers()
+        setDamageBusy(false)
+        setDamageStepIndex(-1)
+      }
     }
   }
 
@@ -319,19 +395,61 @@ export function ViewerToolsPanel({
                 <p>Damage estimation is not available for this project.</p>
               </div>
             ) : damageBusy && !damageReport ? (
-              <div className="product-mac-empty">
-                <span className="spinner" />
-                <p>{damageStatus}</p>
+              <div className="damage-progress">
+                <div className="damage-progress-head">
+                  <p className="damage-progress-title">{damageStatus}</p>
+                  <span className="damage-progress-pct">
+                    {Math.round(
+                      ((Math.max(0, damageStepIndex) + 1) /
+                        DAMAGE_PROGRESS_STEPS.length) *
+                        100
+                    )}
+                    %
+                  </span>
+                </div>
+                <div className="progress-track damage-progress-track">
+                  <span
+                    className="progress-fill damage-progress-fill"
+                    style={{
+                      width: `${
+                        ((Math.max(0, damageStepIndex) + 1) /
+                          DAMAGE_PROGRESS_STEPS.length) *
+                        100
+                      }%`
+                    }}
+                  />
+                </div>
+                <ol className="damage-progress-steps">
+                  {DAMAGE_PROGRESS_STEPS.map((label, index) => {
+                    const done = index < damageStepIndex
+                    const current = index === damageStepIndex
+                    return (
+                      <li
+                        key={label}
+                        className={`damage-progress-step${
+                          done ? ' done' : ''
+                        }${current ? ' current' : ''}`}
+                      >
+                        <span className="damage-progress-dot" aria-hidden />
+                        <span>{label}</span>
+                      </li>
+                    )
+                  })}
+                </ol>
               </div>
             ) : !damageReport ? (
               <div className="product-mac-empty">
-                <p>{damageStatus || 'Click a wall surface to estimate damage.'}</p>
+                <p>
+                  {damageStatus ||
+                    'Mark the damaged area with 3+ corner points, then Finish.'}
+                </p>
               </div>
             ) : (
               <>
                 <DamageReportView
                   report={damageReport}
                   annotatedImageDataUrl={damageAnnotatedImage}
+                  annotatedImageDataUrls={damageAnnotatedImages}
                   measureFactor={project.measureFactor}
                 />
               </>

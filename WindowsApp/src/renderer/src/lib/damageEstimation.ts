@@ -1,4 +1,5 @@
 import type { WallDamageReport } from '../../../shared/wallDamageReport'
+import type { DamageOutline } from '../../../shared/damageChannels'
 import type { PhotoSearchResult } from './photoSearch'
 import { annotateDamageImage } from './annotateDamageImage'
 
@@ -6,12 +7,18 @@ export const DAMAGE_PHOTO_COUNT = 12
 
 export async function analyzeDamageFromPhotos(
   photos: PhotoSearchResult[],
-  options?: { projectName?: string; measureFactor?: number }
+  options?: {
+    projectName?: string
+    measureFactor?: number
+    /** Viewer screenshot with orange marked region — stay-inside guide only. */
+    regionGuideImageDataUrl?: string | null
+  }
 ): Promise<{
   report: WallDamageReport
   imageCount: number
   model: string
   annotatedImageDataUrl: string | null
+  annotatedImageDataUrls: string[]
 }> {
   const imageDataUrls = photos
     .map((photo) => photo.imageDataUrl)
@@ -22,30 +29,47 @@ export async function analyzeDamageFromPhotos(
     throw new Error('No photo images available to analyze. Try another point.')
   }
 
+  const guide =
+    options?.regionGuideImageDataUrl &&
+    options.regionGuideImageDataUrl.startsWith('data:image/')
+      ? options.regionGuideImageDataUrl
+      : undefined
+
   const response = await window.avgs.damage.analyze({
     imageDataUrls,
     projectName: options?.projectName,
     measureFactor: options?.measureFactor,
-    maxImages: DAMAGE_PHOTO_COUNT
+    maxImages: DAMAGE_PHOTO_COUNT,
+    regionGuideImageDataUrl: guide
   })
 
-  const outlineIndex = response.outline?.imageIndex ?? 0
-  const sourceUrl =
-    imageDataUrls[Math.min(Math.max(outlineIndex, 0), imageDataUrls.length - 1)] ??
-    imageDataUrls[0]
+  const outlineList: DamageOutline[] =
+    response.outlines?.length > 0
+      ? response.outlines
+      : response.outline
+        ? [response.outline]
+        : []
 
-  let annotatedImageDataUrl: string | null = null
-  try {
-    annotatedImageDataUrl = await annotateDamageImage(sourceUrl, response.outline)
-  } catch {
-    // Fall back to the raw primary photo if canvas annotation fails.
-    annotatedImageDataUrl = sourceUrl
+  const annotatedImageDataUrls: string[] = []
+  for (const outline of outlineList) {
+    const idx = Math.min(Math.max(outline.imageIndex, 0), imageDataUrls.length - 1)
+    const sourceUrl = imageDataUrls[idx] ?? imageDataUrls[0]
+    try {
+      annotatedImageDataUrls.push(await annotateDamageImage(sourceUrl, outline))
+    } catch {
+      annotatedImageDataUrls.push(sourceUrl)
+    }
+  }
+
+  if (annotatedImageDataUrls.length === 0 && imageDataUrls[0]) {
+    annotatedImageDataUrls.push(imageDataUrls[0])
   }
 
   return {
     report: response.report,
     imageCount: response.imageCount,
     model: response.model,
-    annotatedImageDataUrl
+    annotatedImageDataUrl: annotatedImageDataUrls[0] ?? null,
+    annotatedImageDataUrls
   }
 }

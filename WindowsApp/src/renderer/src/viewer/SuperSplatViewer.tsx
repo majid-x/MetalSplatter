@@ -1,26 +1,52 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
-import type { OpenedPackage } from '../../../shared/projectDownloadChannels'
-import { measurementPrefs } from '../lib/measurementPrefs'
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { OpenedPackage } from "../../../shared/projectDownloadChannels";
+import { measurementPrefs } from "../lib/measurementPrefs";
 
-export type ViewerPickMode = 'photos' | 'damage' | 'measure-a' | 'measure-b' | null
+export type ViewerPickMode =
+  | "photos"
+  | "damage"
+  | "measure-a"
+  | "measure-b"
+  | null;
 
 export type ViewerPickEvent = {
-  mode: Exclude<ViewerPickMode, null>
-  point: [number, number, number]
-  camera: [number, number, number]
-}
+  mode: Exclude<ViewerPickMode, null>;
+  point: [number, number, number];
+  camera: [number, number, number];
+};
 
 export type MeasureStateEvent = {
-  status: string
-  deleteMode: boolean
-  pointCount: number
-  mode: boolean
-}
+  status: string;
+  deleteMode: boolean;
+  pointCount: number;
+  mode: boolean;
+};
 
 export type MeasureCommands = {
-  undo: () => void
-  clear: () => void
-}
+  undo: () => void;
+  clear: () => void;
+};
+
+export type DamageBoundaryStateEvent = {
+  status: string;
+  pointCount: number;
+  mode: boolean;
+};
+
+export type DamageBoundaryCompleteEvent = {
+  points: Array<[number, number, number]>;
+  camera: [number, number, number];
+  pointCount: number;
+  /** Viewer screenshot with amber marked region — DeepSeek stay-inside guide. */
+  regionScreenshot?: string | null;
+  id: number;
+};
+
+export type DamageBoundaryCommands = {
+  undo: () => void;
+  clear: () => void;
+  finish: () => void;
+};
 
 export function SuperSplatViewer({
   packageInfo,
@@ -32,48 +58,68 @@ export function SuperSplatViewer({
   /** Supabase move_speed when set; Mac default 3.5 (nav move_speed ignored). */
   moveSpeed = null,
   measureCommandsRef,
+  damageBoundaryCommandsRef,
   onPick,
   onMeasureState,
+  onDamageBoundaryState,
+  onDamageBoundaryComplete,
   onSprintState,
-  onViewerError
+  onViewerError,
 }: {
-  packageInfo: OpenedPackage
-  projectName: string
-  pickMode?: ViewerPickMode
-  measureMode?: boolean
-  measureDeleteMode?: boolean
-  measureFactor?: number
-  moveSpeed?: number | null
-  measureCommandsRef?: MutableRefObject<MeasureCommands | null>
-  onPick?: (event: ViewerPickEvent) => void
-  onMeasureState?: (event: MeasureStateEvent) => void
-  onSprintState?: (sprinting: boolean) => void
-  onViewerError?: (message: string | null) => void
+  packageInfo: OpenedPackage;
+  projectName: string;
+  pickMode?: ViewerPickMode;
+  measureMode?: boolean;
+  measureDeleteMode?: boolean;
+  measureFactor?: number;
+  moveSpeed?: number | null;
+  measureCommandsRef?: MutableRefObject<MeasureCommands | null>;
+  damageBoundaryCommandsRef?: MutableRefObject<DamageBoundaryCommands | null>;
+  onPick?: (event: ViewerPickEvent) => void;
+  onMeasureState?: (event: MeasureStateEvent) => void;
+  onDamageBoundaryState?: (event: DamageBoundaryStateEvent) => void;
+  onDamageBoundaryComplete?: (
+    event: Omit<DamageBoundaryCompleteEvent, "id">,
+  ) => void;
+  onSprintState?: (sprinting: boolean) => void;
+  onViewerError?: (message: string | null) => void;
 }) {
-  const [src, setSrc] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const onPickRef = useRef(onPick)
-  onPickRef.current = onPick
-  const onErrorRef = useRef(onViewerError)
-  onErrorRef.current = onViewerError
-  const onMeasureRef = useRef(onMeasureState)
-  onMeasureRef.current = onMeasureState
-  const onSprintRef = useRef(onSprintState)
-  onSprintRef.current = onSprintState
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  const onErrorRef = useRef(onViewerError);
+  onErrorRef.current = onViewerError;
+  const onMeasureRef = useRef(onMeasureState);
+  onMeasureRef.current = onMeasureState;
+  const onDamageBoundaryStateRef = useRef(onDamageBoundaryState);
+  onDamageBoundaryStateRef.current = onDamageBoundaryState;
+  const onDamageBoundaryCompleteRef = useRef(onDamageBoundaryComplete);
+  onDamageBoundaryCompleteRef.current = onDamageBoundaryComplete;
+  const onSprintRef = useRef(onSprintState);
+  onSprintRef.current = onSprintState;
+  const pickModeRef = useRef(pickMode);
+  pickModeRef.current = pickMode;
+  const measureModeRef = useRef(measureMode);
+  measureModeRef.current = measureMode;
 
   function postToViewer(payload: Record<string, unknown>) {
-    iframeRef.current?.contentWindow?.postMessage({ source: 'vroomk', ...payload }, '*')
+    iframeRef.current?.contentWindow?.postMessage(
+      { source: "vroomk", ...payload },
+      "*",
+    );
   }
 
   useEffect(() => {
-    let cancelled = false
-    setSrc(null)
-    setError(null)
-    onErrorRef.current?.(null)
+    let cancelled = false;
+    setSrc(null);
+    setError(null);
+    onErrorRef.current?.(null);
 
     // Mac: Supabase move_speed only; nil → Constants.cameraMoveSpeed (3.5). Nav ignored.
-    const speed = typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : 3.5
+    const speed =
+      typeof moveSpeed === "number" && moveSpeed > 0 ? moveSpeed : 3.5;
 
     void window.avgs.viewer
       .buildUrl({
@@ -82,76 +128,135 @@ export function SuperSplatViewer({
         camera: packageInfo.camera,
         navigationPath: packageInfo.navigationPath,
         moveSpeed: speed,
-        projectName
+        projectName,
       })
       .then((url) => {
-        if (!cancelled) setSrc(url)
+        if (!cancelled) setSrc(url);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           const message =
-            err instanceof Error ? err.message : 'Could not start SuperSplat viewer.'
-          setError(message)
-          onErrorRef.current?.(message)
+            err instanceof Error
+              ? err.message
+              : "Could not start SuperSplat viewer.";
+          setError(message);
+          onErrorRef.current?.(message);
         }
-      })
+      });
 
     return () => {
-      cancelled = true
-    }
-  }, [packageInfo, projectName, moveSpeed])
+      cancelled = true;
+    };
+  }, [packageInfo, projectName, moveSpeed]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent): void {
       const data = event.data as {
-        source?: string
-        type?: string
-        mode?: string | boolean
-        message?: string
-        status?: string
-        deleteMode?: boolean
-        pointCount?: number
-        point?: number[]
-        camera?: number[]
-      } | null
-      if (!data || data.source !== 'vroomk-viewer') return
-      if (data.type === 'error' && data.message) {
-        onErrorRef.current?.(data.message)
-        return
+        source?: string;
+        type?: string;
+        mode?: string | boolean;
+        message?: string;
+        status?: string;
+        deleteMode?: boolean;
+        pointCount?: number;
+        point?: number[];
+        camera?: number[];
+      } | null;
+      if (!data || data.source !== "vroomk-viewer") return;
+      if (data.type === "error" && data.message) {
+        onErrorRef.current?.(data.message);
+        return;
       }
-      if (data.type === 'measureState' && typeof data.status === 'string') {
+      if (data.type === "measureState" && typeof data.status === "string") {
         onMeasureRef.current?.({
           status: data.status,
           deleteMode: Boolean(data.deleteMode),
-          pointCount: typeof data.pointCount === 'number' ? data.pointCount : 0,
-          mode: Boolean(data.mode)
-        })
-        return
+          pointCount: typeof data.pointCount === "number" ? data.pointCount : 0,
+          mode: Boolean(data.mode),
+        });
+        return;
       }
-      if (data.type === 'sprintState') {
-        onSprintRef.current?.(Boolean((data as { sprinting?: boolean }).sprinting))
-        return
+      if (
+        data.type === "damageBoundaryState" &&
+        typeof data.status === "string"
+      ) {
+        onDamageBoundaryStateRef.current?.({
+          status: data.status,
+          pointCount: typeof data.pointCount === "number" ? data.pointCount : 0,
+          mode: Boolean(data.mode),
+        });
+        return;
       }
-      if (data.type === 'ready' || data.type === 'bridge-ready') {
-        onErrorRef.current?.(null)
-        postToViewer({ type: 'setMeasureFactor', factor: measureFactor })
-        postToViewer({ type: 'setMeasureExact', exact: measurementPrefs.showExactMeasurements })
-        postToViewer({ type: 'setMeasureMode', enabled: measureMode })
-        postToViewer({ type: 'setMeasureDeleteMode', enabled: measureDeleteMode })
-        if (pickMode === 'photos' || pickMode === 'damage') {
-          postToViewer({ type: 'setPickMode', mode: pickMode })
+      if (data.type === "damageBoundaryComplete") {
+        const raw = data as {
+          points?: number[][];
+          camera?: number[];
+          pointCount?: number;
+          regionScreenshot?: string | null;
+        };
+        const points = Array.isArray(raw.points)
+          ? raw.points
+              .filter((p) => Array.isArray(p) && p.length >= 3)
+              .map((p) => [p[0], p[1], p[2]] as [number, number, number])
+          : [];
+        const camera =
+          Array.isArray(raw.camera) && raw.camera.length >= 3
+            ? ([raw.camera[0], raw.camera[1], raw.camera[2]] as [
+                number,
+                number,
+                number,
+              ])
+            : ([0, 0, 0] as [number, number, number]);
+        if (points.length >= 3) {
+          onDamageBoundaryCompleteRef.current?.({
+            points,
+            camera,
+            pointCount:
+              typeof raw.pointCount === "number"
+                ? raw.pointCount
+                : points.length,
+            regionScreenshot:
+              typeof raw.regionScreenshot === "string" &&
+              raw.regionScreenshot.startsWith("data:image/")
+                ? raw.regionScreenshot
+                : null,
+          });
+        }
+        return;
+      }
+      if (data.type === "sprintState") {
+        onSprintRef.current?.(
+          Boolean((data as { sprinting?: boolean }).sprinting),
+        );
+        return;
+      }
+      if (data.type === "ready" || data.type === "bridge-ready") {
+        onErrorRef.current?.(null);
+        postToViewer({ type: "setMeasureFactor", factor: measureFactor });
+        postToViewer({
+          type: "setMeasureExact",
+          exact: measurementPrefs.showExactMeasurements,
+        });
+        postToViewer({ type: "setMeasureMode", enabled: measureMode });
+        postToViewer({
+          type: "setMeasureDeleteMode",
+          enabled: measureDeleteMode,
+        });
+        if (pickMode === "photos" || pickMode === "damage") {
+          postToViewer({ type: "setPickMode", mode: pickMode });
         }
         // Enter FPS walk at nav spawn — never frameScene (orbit/top-down overview).
         postToViewer({
-          type: 'setMacWalk',
-          moveSpeed: typeof moveSpeed === 'number' && moveSpeed > 0 ? moveSpeed : 3.5
-        })
-        return
+          type: "setMacWalk",
+          moveSpeed:
+            typeof moveSpeed === "number" && moveSpeed > 0 ? moveSpeed : 3.5,
+        });
+        return;
       }
       if (
-        data.type === 'pick' &&
+        data.type === "pick" &&
         data.mode &&
-        typeof data.mode === 'string' &&
+        typeof data.mode === "string" &&
         Array.isArray(data.point) &&
         data.point.length >= 3 &&
         Array.isArray(data.camera) &&
@@ -160,123 +265,152 @@ export function SuperSplatViewer({
         onPickRef.current?.({
           mode: data.mode as Exclude<ViewerPickMode, null>,
           point: [data.point[0], data.point[1], data.point[2]],
-          camera: [data.camera[0], data.camera[1], data.camera[2]]
-        })
+          camera: [data.camera[0], data.camera[1], data.camera[2]],
+        });
       }
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [pickMode, measureMode, measureDeleteMode, measureFactor, moveSpeed])
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [pickMode, measureMode, measureDeleteMode, measureFactor, moveSpeed]);
 
   useEffect(() => {
-    postToViewer({ type: 'setMeasureFactor', factor: measureFactor })
-  }, [measureFactor, src])
+    postToViewer({ type: "setMeasureFactor", factor: measureFactor });
+  }, [measureFactor, src]);
 
   useEffect(() => {
-    postToViewer({ type: 'setMeasureExact', exact: measurementPrefs.showExactMeasurements })
-  }, [src])
+    postToViewer({
+      type: "setMeasureExact",
+      exact: measurementPrefs.showExactMeasurements,
+    });
+  }, [src]);
 
   useEffect(() => {
-    postToViewer({ type: 'setMeasureMode', enabled: measureMode })
+    postToViewer({ type: "setMeasureMode", enabled: measureMode });
     if (!measureMode) {
-      postToViewer({ type: 'setMeasureDeleteMode', enabled: false })
-      if (pickMode === 'photos' || pickMode === 'damage') {
-        postToViewer({ type: 'setPickMode', mode: pickMode })
+      postToViewer({ type: "setMeasureDeleteMode", enabled: false });
+      if (pickMode === "photos" || pickMode === "damage") {
+        postToViewer({ type: "setPickMode", mode: pickMode });
       } else {
-        postToViewer({ type: 'setPickMode', mode: null })
+        postToViewer({ type: "setPickMode", mode: null });
       }
     }
-  }, [measureMode, pickMode, src])
+  }, [measureMode, pickMode, src]);
 
   useEffect(() => {
-    if (!measureMode) return
-    postToViewer({ type: 'setMeasureDeleteMode', enabled: measureDeleteMode })
-  }, [measureDeleteMode, measureMode, src])
+    if (!measureMode) return;
+    postToViewer({ type: "setMeasureDeleteMode", enabled: measureDeleteMode });
+  }, [measureDeleteMode, measureMode, src]);
 
   useEffect(() => {
-    if (measureMode) return
-    postToViewer({ type: 'setPickMode', mode: pickMode })
-  }, [pickMode, measureMode, src])
+    if (measureMode) return;
+    postToViewer({ type: "setPickMode", mode: pickMode });
+  }, [pickMode, measureMode, src]);
 
   useEffect(() => {
-    if (!measureCommandsRef) return
+    if (!measureCommandsRef) return;
     measureCommandsRef.current = {
-      undo: () => postToViewer({ type: 'undoMeasure' }),
-      clear: () => postToViewer({ type: 'clearMeasure' })
-    }
+      undo: () => postToViewer({ type: "undoMeasure" }),
+      clear: () => postToViewer({ type: "clearMeasure" }),
+    };
     return () => {
-      measureCommandsRef.current = null
-    }
-  }, [measureCommandsRef, src])
+      measureCommandsRef.current = null;
+    };
+  }, [measureCommandsRef, src]);
+
+  useEffect(() => {
+    if (!damageBoundaryCommandsRef) return;
+    damageBoundaryCommandsRef.current = {
+      undo: () => postToViewer({ type: "undoDamageBoundary" }),
+      clear: () => postToViewer({ type: "clearDamageBoundary" }),
+      finish: () => postToViewer({ type: "finishDamageBoundary" }),
+    };
+    return () => {
+      damageBoundaryCommandsRef.current = null;
+    };
+  }, [damageBoundaryCommandsRef, src]);
 
   // When the iframe lacks focus (tool rail / after drag), arrows & WASD never reach it.
   // Forward walk keys from the Electron host window into the viewer.
   useEffect(() => {
-    if (!src) return
+    if (!src) return;
     const walkCodes = new Set([
-      'KeyW',
-      'KeyA',
-      'KeyS',
-      'KeyD',
-      'KeyQ',
-      'KeyE',
-      'ArrowUp',
-      'ArrowDown',
-      'ArrowLeft',
-      'ArrowRight',
-      'ShiftLeft',
-      'ShiftRight'
-    ])
+      "KeyW",
+      "KeyA",
+      "KeyS",
+      "KeyD",
+      "KeyQ",
+      "KeyE",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "ShiftLeft",
+      "ShiftRight",
+    ]);
 
     function isTypingTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false
-      const tag = target.tagName
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
       return (
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT' ||
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
         target.isContentEditable
-      )
+      );
     }
 
     function onKey(event: KeyboardEvent, down: boolean): void {
-      if (isTypingTarget(event.target)) return
-      // Ctrl/Cmd+Z → undo last measure point (works even when iframe lacks focus).
+      if (isTypingTarget(event.target)) return;
+      // Ctrl/Cmd+Z → undo last measure / damage-boundary point.
       if (
         down &&
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
         !event.shiftKey &&
-        (event.code === 'KeyZ' || event.key === 'z' || event.key === 'Z')
+        (event.code === "KeyZ" || event.key === "z" || event.key === "Z")
       ) {
-        postToViewer({ type: 'undoMeasure' })
-        event.preventDefault()
-        return
+        if (pickModeRef.current === "damage") {
+          postToViewer({ type: "undoDamageBoundary" });
+        } else if (measureModeRef.current) {
+          postToViewer({ type: "undoMeasure" });
+        }
+        event.preventDefault();
+        return;
       }
-      if (event.ctrlKey || event.altKey || event.metaKey) return
-      if (!walkCodes.has(event.code)) return
+      // Enter finishes a damage boundary (3+ corners).
+      if (
+        down &&
+        pickModeRef.current === "damage" &&
+        (event.code === "Enter" || event.code === "NumpadEnter")
+      ) {
+        postToViewer({ type: "finishDamageBoundary" });
+        event.preventDefault();
+        return;
+      }
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if (!walkCodes.has(event.code)) return;
       // Always forward: in Electron, arrows often hit the host even when the iframe
       // "has focus". setKey is idempotent, so a duplicate from the iframe is fine.
       postToViewer({
-        type: down ? 'keyDown' : 'keyUp',
+        type: down ? "keyDown" : "keyUp",
         code: event.code,
-        shiftKey: event.shiftKey
-      })
-      event.preventDefault()
+        shiftKey: event.shiftKey,
+      });
+      event.preventDefault();
     }
 
-    const down = (e: KeyboardEvent) => onKey(e, true)
-    const up = (e: KeyboardEvent) => onKey(e, false)
-    window.addEventListener('keydown', down, true)
-    window.addEventListener('keyup', up, true)
+    const down = (e: KeyboardEvent) => onKey(e, true);
+    const up = (e: KeyboardEvent) => onKey(e, false);
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
     return () => {
-      window.removeEventListener('keydown', down, true)
-      window.removeEventListener('keyup', up, true)
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
       for (const code of Array.from(walkCodes)) {
-        postToViewer({ type: 'keyUp', code })
+        postToViewer({ type: "keyUp", code });
       }
-    }
-  }, [src])
+    };
+  }, [src]);
 
   if (error) {
     return (
@@ -284,7 +418,7 @@ export function SuperSplatViewer({
         <h2>Viewer error</h2>
         <p>{error}</p>
       </div>
-    )
+    );
   }
 
   if (!src) {
@@ -293,7 +427,7 @@ export function SuperSplatViewer({
         <span className="spinner large" />
         <p>Starting SuperSplat…</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -306,11 +440,11 @@ export function SuperSplatViewer({
       allow="fullscreen; xr-spatial-tracking; gamepad; pointer-lock"
       onMouseDown={() => {
         try {
-          iframeRef.current?.focus()
+          iframeRef.current?.focus();
         } catch {
           /* ignore */
         }
       }}
     />
-  )
+  );
 }

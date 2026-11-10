@@ -7,10 +7,12 @@ import {
 export function DamageReportView({
   report,
   annotatedImageDataUrl,
+  annotatedImageDataUrls,
   measureFactor
 }: {
   report: WallDamageReport
   annotatedImageDataUrl?: string | null
+  annotatedImageDataUrls?: string[] | null
   measureFactor?: number
 }) {
   const tone = severityTone(report.damage_assessment.severity_level)
@@ -23,16 +25,29 @@ export function DamageReportView({
   const location = [meta.location.room, meta.location.state, meta.location.country]
     .filter(Boolean)
     .join(' · ')
+  const outlineImages =
+    annotatedImageDataUrls && annotatedImageDataUrls.length > 0
+      ? annotatedImageDataUrls
+      : annotatedImageDataUrl
+        ? [annotatedImageDataUrl]
+        : []
 
   return (
     <div className="damage-report">
-      {annotatedImageDataUrl ? (
-        <section className="damage-hero">
-          <img
-            src={annotatedImageDataUrl}
-            alt="Damaged area outlined"
-            className="damage-outline-image"
-          />
+      {outlineImages.length > 0 ? (
+        <section className={`damage-hero ${outlineImages.length > 1 ? 'multi' : ''}`}>
+          {outlineImages.map((url, index) => (
+            <img
+              key={`${index}-${url.slice(0, 48)}`}
+              src={url}
+              alt={
+                outlineImages.length > 1
+                  ? `Damaged area outlined ${index + 1}`
+                  : 'Damaged area outlined'
+              }
+              className="damage-outline-image"
+            />
+          ))}
         </section>
       ) : null}
 

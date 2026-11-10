@@ -1,292 +1,328 @@
-import { app } from 'electron'
-import { createReadStream, existsSync, readFileSync, statSync } from 'fs'
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import { basename, extname, join, normalize, resolve, sep } from 'path'
-import type { ViewerLaunchOptions } from '../shared/viewerChannels'
-import { parseNav } from './navParser'
-import { projectsRoot } from './projectStore'
+import { app } from "electron";
+import { createReadStream, existsSync, readFileSync, statSync } from "fs";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "http";
+import { basename, extname, join, normalize, resolve, sep } from "path";
+import type { ViewerLaunchOptions } from "../shared/viewerChannels";
+import { parseNav } from "./navParser";
+import { projectsRoot } from "./projectStore";
 
 /** FPS first-person walk default — Mac Constants.cameraMoveSpeed. */
-const DEFAULT_FPS_MOVE_SPEED = 3.5
+const DEFAULT_FPS_MOVE_SPEED = 3.5;
 
 const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.wasm': 'application/wasm',
-  '.map': 'application/json',
-  '.ply': 'application/octet-stream',
-  '.splat': 'application/octet-stream',
-  '.spz': 'application/octet-stream',
-  '.sog': 'application/octet-stream',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.webp': 'image/webp',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg'
-}
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".map": "application/json",
+  ".ply": "application/octet-stream",
+  ".splat": "application/octet-stream",
+  ".spz": "application/octet-stream",
+  ".sog": "application/octet-stream",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".webp": "image/webp",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+};
 
-let server: Server | null = null
-let origin = ''
+let server: Server | null = null;
+let origin = "";
 
 type PaymentSession = {
-  publishableKey: string
-  clientSecret: string
-  amountDisplay: string
-}
+  publishableKey: string;
+  clientSecret: string;
+  amountDisplay: string;
+};
 
-const paymentSessions = new Map<string, PaymentSession>()
+const paymentSessions = new Map<string, PaymentSession>();
 
 function viewerPublicDir(): string {
-  return join(app.getAppPath(), 'node_modules', '@playcanvas', 'supersplat-viewer', 'public')
+  return join(
+    app.getAppPath(),
+    "node_modules",
+    "@playcanvas",
+    "supersplat-viewer",
+    "public",
+  );
 }
 
 function appViewerDir(): string {
-  return join(app.getAppPath(), 'viewer')
+  return join(app.getAppPath(), "viewer");
 }
 
 function settingsTemplatePath(): string {
-  return join(appViewerDir(), 'settings.json')
+  return join(appViewerDir(), "settings.json");
 }
 
 function fpsWalkCameraPath(): string {
-  return join(appViewerDir(), 'fpsWalkCamera.js')
+  return join(appViewerDir(), "fpsWalkCamera.js");
 }
 
 function contentUrlFor(filePath: string): string {
-  const fileName = basename(filePath)
-  return `${origin}/content/${encodeURIComponent(fileName)}?path=${encodeURIComponent(filePath)}`
+  const fileName = basename(filePath);
+  return `${origin}/content/${encodeURIComponent(fileName)}?path=${encodeURIComponent(filePath)}`;
 }
 
 function buildSettingsJson(options: ViewerLaunchOptions): string {
-  const template = JSON.parse(readFileSync(settingsTemplatePath(), 'utf8')) as Record<string, unknown>
+  const template = JSON.parse(
+    readFileSync(settingsTemplatePath(), "utf8"),
+  ) as Record<string, unknown>;
   // Mac default when no nav camera: (0, 0, 1.54) looking down -Z — never empty→frameScene blob.
   const camera = options.camera ?? {
     position: [0, 0, 1.54] as [number, number, number],
     target: [0, 0, -0.46] as [number, number, number],
-    fov: 65
-  }
+    fov: 65,
+  };
   template.cameras = [
     {
       initial: {
         position: camera.position,
         target: camera.target,
-        fov: camera.fov
-      }
-    }
-  ]
+        fov: camera.fov,
+      },
+    },
+  ];
   // Room-scale captures are environments, not orbit-around-object subjects.
-  template.startMode = 'default'
-  return JSON.stringify(template)
+  template.startMode = "default";
+  return JSON.stringify(template);
 }
 
 function sendFile(res: ServerResponse, filePath: string): void {
   if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    res.writeHead(404).end('Not found')
-    return
+    res.writeHead(404).end("Not found");
+    return;
   }
-  const info = statSync(filePath)
-  const mime = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+  const info = statSync(filePath);
+  const mime =
+    MIME[extname(filePath).toLowerCase()] ?? "application/octet-stream";
   res.writeHead(200, {
-    'Content-Type': mime,
-    'Content-Length': info.size,
-    'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': '*',
-    'Accept-Ranges': 'bytes'
-  })
-  createReadStream(filePath).pipe(res)
+    "Content-Type": mime,
+    "Content-Length": info.size,
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*",
+    "Accept-Ranges": "bytes",
+  });
+  createReadStream(filePath).pipe(res);
 }
 
 function isPathInside(root: string, candidate: string): boolean {
-  const normalizedRoot = resolve(root) + sep
-  const normalizedCandidate = resolve(candidate)
-  return normalizedCandidate.startsWith(normalizedRoot) || normalizedCandidate === resolve(root)
+  const normalizedRoot = resolve(root) + sep;
+  const normalizedCandidate = resolve(candidate);
+  return (
+    normalizedCandidate.startsWith(normalizedRoot) ||
+    normalizedCandidate === resolve(root)
+  );
 }
 
 function allowedContentRoots(): string[] {
-  return [projectsRoot()]
+  return [projectsRoot()];
 }
 
 function isAllowedContentPath(filePath: string): boolean {
-  const resolved = resolve(filePath)
-  if (allowedContentRoots().some((root) => isPathInside(root, resolved))) return true
+  const resolved = resolve(filePath);
+  if (allowedContentRoots().some((root) => isPathInside(root, resolved)))
+    return true;
   // Drag-dropped / user-picked local splat files
-  const ext = extname(resolved).toLowerCase()
-  if (!['.ply', '.splat', '.spz', '.sog', '.glb', '.gltf'].includes(ext)) return false
-  return existsSync(resolved) && statSync(resolved).isFile()
+  const ext = extname(resolved).toLowerCase();
+  if (![".ply", ".splat", ".spz", ".sog", ".glb", ".gltf"].includes(ext))
+    return false;
+  return existsSync(resolved) && statSync(resolved).isFile();
 }
 
-function handleContent(req: IncomingMessage, res: ServerResponse, url: URL): void {
-  const raw = url.searchParams.get('path')
+function handleContent(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  const raw = url.searchParams.get("path");
   if (!raw) {
-    res.writeHead(400).end('Missing path')
-    return
+    res.writeHead(400).end("Missing path");
+    return;
   }
-  const filePath = normalize(raw)
+  const filePath = normalize(raw);
   if (!isAllowedContentPath(filePath)) {
-    res.writeHead(403).end('Forbidden')
-    return
+    res.writeHead(403).end("Forbidden");
+    return;
   }
-  if (req.method === 'HEAD') {
+  if (req.method === "HEAD") {
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      res.writeHead(404).end()
-      return
+      res.writeHead(404).end();
+      return;
     }
-    const info = statSync(filePath)
+    const info = statSync(filePath);
     res.writeHead(200, {
-      'Content-Type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-      'Content-Length': info.size,
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-      'Accept-Ranges': 'bytes'
-    })
-    res.end()
-    return
+      "Content-Type":
+        MIME[extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      "Content-Length": info.size,
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Accept-Ranges": "bytes",
+    });
+    res.end();
+    return;
   }
-  sendFile(res, filePath)
+  sendFile(res, filePath);
 }
 
 function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   try {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
-    if (url.pathname === '/content' || url.pathname.startsWith('/content/')) {
-      handleContent(req, res, url)
-      return
+    if (url.pathname === "/content" || url.pathname.startsWith("/content/")) {
+      handleContent(req, res, url);
+      return;
     }
 
-    if (url.pathname === '/settings.json' || url.pathname === '/viewer/settings.json') {
-      sendFile(res, settingsTemplatePath())
-      return
+    if (
+      url.pathname === "/settings.json" ||
+      url.pathname === "/viewer/settings.json"
+    ) {
+      sendFile(res, settingsTemplatePath());
+      return;
     }
 
     // Custom FPS walk module (not part of SuperSplat public/).
     if (
-      url.pathname === '/vroomk/fpsWalkCamera.js' ||
-      url.pathname === '/viewer/fpsWalkCamera.js'
+      url.pathname === "/vroomk/fpsWalkCamera.js" ||
+      url.pathname === "/viewer/fpsWalkCamera.js"
     ) {
-      sendFile(res, fpsWalkCameraPath())
-      return
+      sendFile(res, fpsWalkCameraPath());
+      return;
     }
 
-    if (url.pathname.startsWith('/stripe-pay/')) {
-      const id = decodeURIComponent(url.pathname.slice('/stripe-pay/'.length))
-      const session = paymentSessions.get(id)
+    if (url.pathname.startsWith("/stripe-pay/")) {
+      const id = decodeURIComponent(url.pathname.slice("/stripe-pay/".length));
+      const session = paymentSessions.get(id);
       if (!session) {
-        res.writeHead(404).end('Payment session expired')
-        return
+        res.writeHead(404).end("Payment session expired");
+        return;
       }
       res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store'
-      })
-      res.end(stripePaymentHtml(session))
-      return
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(stripePaymentHtml(session));
+      return;
     }
 
-    if (url.pathname === '/vroomk-viewer.html') {
+    if (url.pathname === "/vroomk-viewer.html") {
       res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store'
-      })
-      res.end(vroomkViewerHtml())
-      return
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(vroomkViewerHtml());
+      return;
     }
 
-    let relative = url.pathname
-    if (relative === '/' || relative === '/viewer' || relative === '/viewer/') {
-      relative = '/viewer/index.html'
+    let relative = url.pathname;
+    if (relative === "/" || relative === "/viewer" || relative === "/viewer/") {
+      relative = "/viewer/index.html";
     }
-    if (relative.startsWith('/viewer/')) {
-      relative = relative.slice('/viewer/'.length)
+    if (relative.startsWith("/viewer/")) {
+      relative = relative.slice("/viewer/".length);
     } else {
-      relative = relative.replace(/^\//, '')
+      relative = relative.replace(/^\//, "");
     }
 
-    const safe = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, '')
-    sendFile(res, join(viewerPublicDir(), safe))
+    const safe = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, "");
+    sendFile(res, join(viewerPublicDir(), safe));
   } catch {
-    res.writeHead(500).end('Server error')
+    res.writeHead(500).end("Server error");
   }
 }
 
 export async function startMediaServer(): Promise<string> {
-  if (origin) return origin
+  if (origin) return origin;
 
-  server = createServer(handleRequest)
+  server = createServer(handleRequest);
 
   await new Promise<void>((resolvePromise, reject) => {
-    server!.once('error', reject)
-    server!.listen(0, '127.0.0.1', () => resolvePromise())
-  })
+    server!.once("error", reject);
+    server!.listen(0, "127.0.0.1", () => resolvePromise());
+  });
 
-  const address = server.address()
-  if (!address || typeof address === 'string') {
-    throw new Error('Failed to bind Vroomk media server')
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to bind Vroomk media server");
   }
 
-  origin = `http://127.0.0.1:${address.port}`
-  return origin
+  origin = `http://127.0.0.1:${address.port}`;
+  return origin;
 }
 
 export function getMediaServerOrigin(): string {
-  return origin
+  return origin;
 }
 
 export function stopMediaServer(): void {
-  server?.close()
-  server = null
-  origin = ''
+  server?.close();
+  server = null;
+  origin = "";
 }
 
 export function buildViewerUrl(options: ViewerLaunchOptions | string): string {
-  if (!origin) throw new Error('Media server is not running')
+  if (!origin) throw new Error("Media server is not running");
 
   const launch: ViewerLaunchOptions =
-    typeof options === 'string' ? { modelPath: options } : options
+    typeof options === "string" ? { modelPath: options } : options;
 
   const params = new URLSearchParams({
     content: contentUrlFor(launch.modelPath),
     // Prefer WebGL for broad Windows GPU drivers; SuperSplat still frames the scene.
-    webgl: '1',
+    webgl: "1",
     // Hide SuperSplat chrome — Mac-style overlay tools are drawn by the Electron UI.
-    noui: '1'
-  })
+    noui: "1",
+  });
 
   if (launch.collisionPath) {
-    params.set('collision', contentUrlFor(launch.collisionPath))
+    params.set("collision", contentUrlFor(launch.collisionPath));
   }
 
   // FPS walk speed (Supabase move_speed when set, else Mac default 3.5).
   const speed =
-    typeof launch.moveSpeed === 'number' && launch.moveSpeed > 0
+    typeof launch.moveSpeed === "number" && launch.moveSpeed > 0
       ? launch.moveSpeed
-      : DEFAULT_FPS_MOVE_SPEED
-  params.set('movespeed', String(speed))
+      : DEFAULT_FPS_MOVE_SPEED;
+  params.set("movespeed", String(speed));
   // FPS reticle like Mac look-capture affordance.
-  params.set('reticle', '1')
+  params.set("reticle", "1");
 
   // Prefetching a 200MB+ PLY into memory before decode stalls at 100% on black.
   try {
-    if (existsSync(launch.modelPath) && statSync(launch.modelPath).size > 48 * 1024 * 1024) {
-      params.set('noprefetch', '1')
+    if (
+      existsSync(launch.modelPath) &&
+      statSync(launch.modelPath).size > 48 * 1024 * 1024
+    ) {
+      params.set("noprefetch", "1");
     }
   } catch {
     /* ignore */
   }
 
   // Inline settings so nav start camera is applied without a temp file.
-  const settingsJson = buildSettingsJson(launch)
-  params.set('settings', `data:application/json,${encodeURIComponent(settingsJson)}`)
+  const settingsJson = buildSettingsJson(launch);
+  params.set(
+    "settings",
+    `data:application/json,${encodeURIComponent(settingsJson)}`,
+  );
 
   // Scene navigation for walkable clamp + wall-box slide (optional).
   if (launch.navigationPath && existsSync(launch.navigationPath)) {
     try {
-      const nav = parseNav(readFileSync(launch.navigationPath, 'utf8'))
+      const nav = parseNav(readFileSync(launch.navigationPath, "utf8"));
       if (nav) {
-        params.set('nav', `data:application/json,${encodeURIComponent(JSON.stringify(nav))}`)
+        params.set(
+          "nav",
+          `data:application/json,${encodeURIComponent(JSON.stringify(nav))}`,
+        );
       }
     } catch {
       /* ignore — walk without clamp */
@@ -294,7 +330,7 @@ export function buildViewerUrl(options: ViewerLaunchOptions | string): string {
   }
 
   // Custom wrapper adds click-to-pick postMessage bridge for photos / measure.
-  return `${origin}/vroomk-viewer.html?${params.toString()}`
+  return `${origin}/vroomk-viewer.html?${params.toString()}`;
 }
 
 function vroomkViewerHtml(): string {
@@ -393,6 +429,11 @@ function vroomkViewerHtml(): string {
     let photoPickPoint = null;
     /** Brief screen-space flash at the click until the world pick resolves. */
     let photoClickFlash = null;
+    /**
+     * Damage Estimation boundary (Measure-style polygon).
+     * position = world; apiPoint = Mac/photo-API coords for /query.
+     */
+    let damageNodes = []; // { position:[x,y,z], apiPoint:[x,y,z] }
     /** PlayCanvas-style: LMB (walk) / RMB (tools) drag-look; cursor stays visible. */
     let dragLooking = false;
     /**
@@ -501,13 +542,13 @@ function vroomkViewerHtml(): string {
     }
 
     function runSurfacePickAt(cx, cy) {
-      const modeAtClick = pickMode;
-      if (modeAtClick !== 'photos' && modeAtClick !== 'damage') return;
+      // Photos only — damage uses a multi-point boundary instead of a single pick.
+      if (pickMode !== 'photos') return;
       const req = ++pickRequestId;
       photoClickFlash = { x: cx, y: cy, until: performance.now() + 350 };
       drawToolOverlay();
       void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
-        if (!result || req !== pickRequestId || pickMode !== modeAtClick) return;
+        if (!result || req !== pickRequestId || pickMode !== 'photos') return;
         photoPickPoint = result.point;
         photoClickFlash = null;
         drawToolOverlay();
@@ -515,10 +556,147 @@ function vroomkViewerHtml(): string {
         const apiPoint = toMacPhotoPoint(viewerHandle.app, result.point, sceneNav);
         post({
           type: 'pick',
-          mode: modeAtClick,
+          mode: 'photos',
           point: apiPoint,
           camera: result.camera
         });
+      });
+    }
+
+    function screenNearDamagePin(cx, cy, node, radiusPx) {
+      if (!viewerHandle || !node) return false;
+      const s = screenOf(viewerHandle.app, node.position);
+      if (!s) return false;
+      return Math.hypot(s.x - cx, s.y - cy) <= radiusPx;
+    }
+
+    /** Composite splat canvas + amber marked polygon for DeepSeek region guide. */
+    function captureDamageRegionScreenshot() {
+      try {
+        if (!viewerHandle || damageNodes.length < 3) return null;
+        const app = viewerHandle.app;
+        const src = app.graphicsDevice && app.graphicsDevice.canvas;
+        if (!src) return null;
+        const rect = src.getBoundingClientRect();
+        const w = Math.max(320, Math.round(rect.width));
+        const h = Math.max(240, Math.round(rect.height));
+        const out = document.createElement('canvas');
+        out.width = w;
+        out.height = h;
+        const ctx = out.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(src, 0, 0, w, h);
+
+        const toLocal = (world) => {
+          const s = worldToScreen(app, world);
+          if (!s) return null;
+          return {
+            x: ((s.x - rect.left) / Math.max(1e-6, rect.width)) * w,
+            y: ((s.y - rect.top) / Math.max(1e-6, rect.height)) * h
+          };
+        };
+
+        const pts = [];
+        for (let i = 0; i < damageNodes.length; i++) {
+          const p = toLocal(damageNodes[i].position);
+          if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) pts.push(p);
+        }
+        if (pts.length >= 3) {
+          ctx.beginPath();
+          pts.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          });
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(251, 146, 60, 0.22)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(251, 146, 60, 0.98)';
+          ctx.lineWidth = Math.max(3, Math.round(Math.min(w, h) * 0.006));
+          ctx.lineJoin = 'round';
+          ctx.stroke();
+          for (let i = 0; i < pts.length; i++) {
+            const p = pts[i];
+            const r = i === 0 ? 7 : 5;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = i === 0 ? 'rgb(249,115,22)' : 'rgb(251,146,60)';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          ctx.font = 'bold 14px Segoe UI, sans-serif';
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.fillRect(10, 10, 210, 28);
+          ctx.fillStyle = '#fdba74';
+          ctx.fillText('MARKED DAMAGE AREA', 18, 30);
+        }
+        return out.toDataURL('image/jpeg', 0.85);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function finishDamageBoundary() {
+      if (pickMode !== 'damage' || damageNodes.length < 3 || !viewerHandle) return false;
+      const camComp = findCamera(viewerHandle.app);
+      const camPos = camComp?.entity?.getPosition?.();
+      const camera = camPos
+        ? [camPos.x, camPos.y, camPos.z]
+        : damageNodes[0]
+          ? damageNodes[0].position.slice()
+          : [0, 0, 0];
+      const points = damageNodes.map((n) => n.apiPoint.slice());
+      // Ensure overlay is current, then grab a guide screenshot of the marked region.
+      drawToolOverlay();
+      const regionScreenshot = captureDamageRegionScreenshot();
+      banner.textContent = 'Damage area marked · analyzing…';
+      emitDamageBoundaryState('Boundary ready · ' + points.length + ' corners');
+      post({
+        type: 'damageBoundaryComplete',
+        points: points,
+        camera: camera,
+        pointCount: points.length,
+        regionScreenshot: regionScreenshot
+      });
+      kickWalkFrame();
+      return true;
+    }
+
+    function undoDamageBoundaryPoint() {
+      if (damageNodes.length === 0) return;
+      damageNodes.pop();
+      banner.textContent = damageBannerText();
+      emitDamageBoundaryState(banner.textContent);
+      drawToolOverlay();
+    }
+
+    function addDamageBoundaryPoint(cx, cy) {
+      if (pickMode !== 'damage' || !viewerHandle) return;
+      const closeRadius = Math.max(18, 22 * measureOverlayScale);
+      // Click near first pin with 3+ points → close polygon and analyze.
+      if (
+        damageNodes.length >= 3 &&
+        screenNearDamagePin(cx, cy, damageNodes[0], closeRadius)
+      ) {
+        finishDamageBoundary();
+        return;
+      }
+      const req = ++pickRequestId;
+      photoClickFlash = { x: cx, y: cy, until: performance.now() + 280 };
+      drawToolOverlay();
+      void pickWorldPoint(viewerHandle.app, cx, cy).then((result) => {
+        if (!result || req !== pickRequestId || pickMode !== 'damage') return;
+        photoClickFlash = null;
+        const apiPoint = toMacPhotoPoint(viewerHandle.app, result.point, sceneNav);
+        damageNodes.push({
+          position: result.point.slice(),
+          apiPoint: apiPoint.slice()
+        });
+        banner.textContent = damageBannerText();
+        emitDamageBoundaryState(banner.textContent);
+        drawToolOverlay();
+        kickWalkFrame();
       });
     }
 
@@ -669,6 +847,32 @@ function vroomkViewerHtml(): string {
       photoClickFlash = null;
     }
 
+    function clearDamageBoundary() {
+      damageNodes = [];
+      emitDamageBoundaryState(
+        pickMode === 'damage'
+          ? 'Mark damage corners · click 3+ points · Finish'
+          : 'Damage boundary cleared'
+      );
+      drawToolOverlay();
+    }
+
+    function emitDamageBoundaryState(status) {
+      post({
+        type: 'damageBoundaryState',
+        status: status || '',
+        pointCount: damageNodes.length,
+        mode: pickMode === 'damage'
+      });
+    }
+
+    function damageBannerText() {
+      const n = damageNodes.length;
+      if (n === 0) return 'Mark damage boundary · click corners on the wall';
+      if (n < 3) return 'Damage boundary · ' + n + ' point(s) · need 3+ then Finish';
+      return 'Damage boundary · ' + n + ' points · Finish or click first pin to close';
+    }
+
     function setPickMode(mode) {
       // Surface pick (photos / damage); measure uses setMeasureMode.
       if (mode && String(mode).startsWith('measure')) {
@@ -677,18 +881,25 @@ function vroomkViewerHtml(): string {
       }
       if (mode === 'photos' || mode === 'damage') {
         setMeasureMode(false);
+        const switchingAwayFromDamage = pickMode === 'damage' && mode !== 'damage';
         pickMode = mode;
         clearPhotoMarker();
+        if (switchingAwayFromDamage || mode === 'damage') {
+          // Fresh boundary each time damage tool is (re)entered.
+          damageNodes = [];
+        }
         banner.classList.add('on');
         // Damage mode must not reveal the image-search backend to the user.
         banner.textContent =
           mode === 'damage'
-            ? 'Click a wall surface to estimate damage'
+            ? damageBannerText()
             : 'Click in the scene to search nearby photos';
+        if (mode === 'damage') emitDamageBoundaryState(banner.textContent);
         drawToolOverlay();
       } else {
         pickMode = null;
         clearPhotoMarker();
+        damageNodes = [];
         if (!measureMode) {
           banner.classList.remove('on');
           overlay.innerHTML = '';
@@ -706,6 +917,7 @@ function vroomkViewerHtml(): string {
       if (measureMode) {
         pickMode = null;
         clearPhotoMarker();
+        damageNodes = [];
         banner.classList.add('on');
         banner.textContent = 'Measure on · click two points';
         emitMeasureState('Measure on · click two points');
@@ -1000,8 +1212,13 @@ function vroomkViewerHtml(): string {
         return;
       }
       // Measure pins persist after leaving the tool; hover only while Measure is on.
-      // Surface pick (photos / damage) keeps its pin overlay.
-      if (!measureMode && measureNodes.length === 0 && !isSurfacePickMode()) {
+      // Photos keep a pin; damage keeps a multi-point boundary overlay.
+      if (
+        !measureMode &&
+        measureNodes.length === 0 &&
+        !isSurfacePickMode() &&
+        damageNodes.length === 0
+      ) {
         overlay.innerHTML = '';
         return;
       }
@@ -1077,8 +1294,8 @@ function vroomkViewerHtml(): string {
         }
       }
 
-      // Search Image / Damage: same cyan HTML pin as Measure (reprojected every frame).
-      if (isSurfacePickMode()) {
+      // Search Image: cyan HTML pin (reprojected every frame).
+      if (pickMode === 'photos') {
         const oscale = measureOverlayScale;
         const pinSize = Math.max(6, 12 * oscale);
         if (photoClickFlash) {
@@ -1100,6 +1317,97 @@ function vroomkViewerHtml(): string {
         }
       }
 
+      // Damage Estimation: amber boundary polygon (Measure-style edges + pins).
+      if (pickMode === 'damage' || damageNodes.length > 0) {
+        const oscale = measureOverlayScale;
+        const strokeW = Math.max(1.5, 2.5 * oscale);
+        const pinSize = Math.max(7, 13 * oscale);
+        const pinFirst = Math.max(9, 16 * oscale);
+        const amber = 'rgba(251, 146, 60, 0.95)';
+        const amberSoft = 'rgba(251, 146, 60, 0.45)';
+        if (photoClickFlash && pickMode === 'damage') {
+          if (performance.now() < photoClickFlash.until) {
+            html += pinHtml(
+              { x: photoClickFlash.x, y: photoClickFlash.y },
+              'rgb(251,146,60)',
+              pinSize
+            );
+          } else {
+            photoClickFlash = null;
+          }
+        }
+        if (damageNodes.length >= 3) {
+          const polyPts = [];
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity;
+          for (let i = 0; i < damageNodes.length; i++) {
+            const s = screenOf(app, damageNodes[i].position);
+            if (!s) continue;
+            polyPts.push(s);
+            if (s.x < minX) minX = s.x;
+            if (s.y < minY) minY = s.y;
+            if (s.x > maxX) maxX = s.x;
+            if (s.y > maxY) maxY = s.y;
+          }
+          if (polyPts.length >= 3 && Number.isFinite(minX)) {
+            const pad = 8;
+            const left = minX - pad;
+            const top = minY - pad;
+            const w = Math.max(1, maxX - minX + pad * 2);
+            const h = Math.max(1, maxY - minY + pad * 2);
+            const pointsAttr = polyPts
+              .map((p) => (p.x - left).toFixed(1) + ',' + (p.y - top).toFixed(1))
+              .join(' ');
+            html +=
+              '<div style="position:absolute;left:' + left + 'px;top:' + top +
+              'px;width:' + w + 'px;height:' + h + 'px;pointer-events:none;">' +
+              '<svg width="100%" height="100%" style="overflow:visible">' +
+              '<polygon points="' + pointsAttr +
+              '" fill="rgba(251,146,60,0.22)" stroke="' + amber +
+              '" stroke-width="' + strokeW + '" /></svg></div>';
+          }
+        }
+        for (let i = 1; i < damageNodes.length; i++) {
+          const a = screenOf(app, damageNodes[i - 1].position);
+          const b = screenOf(app, damageNodes[i].position);
+          if (!a || !b) continue;
+          html +=
+            '<div style="position:absolute;left:' + Math.min(a.x, b.x) + 'px;top:' + Math.min(a.y, b.y) +
+            'px;width:' + Math.max(1, Math.abs(b.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(b.y - a.y)) +
+            'px;pointer-events:none;">' +
+            '<svg width="100%" height="100%" style="overflow:visible">' +
+            '<line x1="' + (a.x - Math.min(a.x, b.x)) + '" y1="' + (a.y - Math.min(a.y, b.y)) +
+            '" x2="' + (b.x - Math.min(a.x, b.x)) + '" y2="' + (b.y - Math.min(a.y, b.y)) +
+            '" stroke="' + amber + '" stroke-width="' + strokeW + '" /></svg></div>';
+        }
+        if (damageNodes.length >= 3) {
+          const a = screenOf(app, damageNodes[damageNodes.length - 1].position);
+          const b = screenOf(app, damageNodes[0].position);
+          if (a && b) {
+            html +=
+              '<div style="position:absolute;left:' + Math.min(a.x, b.x) + 'px;top:' + Math.min(a.y, b.y) +
+              'px;width:' + Math.max(1, Math.abs(b.x - a.x)) + 'px;height:' + Math.max(1, Math.abs(b.y - a.y)) +
+              'px;pointer-events:none;">' +
+              '<svg width="100%" height="100%" style="overflow:visible">' +
+              '<line x1="' + (a.x - Math.min(a.x, b.x)) + '" y1="' + (a.y - Math.min(a.y, b.y)) +
+              '" x2="' + (b.x - Math.min(a.x, b.x)) + '" y2="' + (b.y - Math.min(a.y, b.y)) +
+              '" stroke="' + amberSoft + '" stroke-width="' + strokeW +
+              '" stroke-dasharray="6 5" /></svg></div>';
+          }
+        }
+        for (let i = 0; i < damageNodes.length; i++) {
+          const s = screenOf(app, damageNodes[i].position);
+          if (!s) continue;
+          html += pinHtml(
+            s,
+            i === 0 ? 'rgb(249,115,22)' : 'rgb(251,146,60)',
+            i === 0 ? pinFirst : pinSize
+          );
+        }
+      }
+
       overlay.innerHTML = html;
     }
 
@@ -1116,6 +1424,9 @@ function vroomkViewerHtml(): string {
       if (data.type === 'setMeasureDeleteMode') setMeasureDeleteMode(!!data.enabled);
       if (data.type === 'undoMeasure') undoMeasurePoint();
       if (data.type === 'clearMeasure') clearMeasureGeometry();
+      if (data.type === 'undoDamageBoundary') undoDamageBoundaryPoint();
+      if (data.type === 'clearDamageBoundary') clearDamageBoundary();
+      if (data.type === 'finishDamageBoundary') finishDamageBoundary();
       if (data.type === 'setMeasureFactor' && typeof data.factor === 'number' && data.factor > 0) {
         measureFactor = data.factor;
       }
@@ -1430,11 +1741,10 @@ function vroomkViewerHtml(): string {
           ) {
             if (pending.kind === 'measure' && measureMode) {
               void handleMeasureClick(pending.x, pending.y);
-            } else if (
-              (pending.kind === 'photos' || pending.kind === 'damage') &&
-              pickMode === pending.kind
-            ) {
+            } else if (pending.kind === 'photos' && pickMode === 'photos') {
               runSurfacePickAt(pending.x, pending.y);
+            } else if (pending.kind === 'damage' && pickMode === 'damage') {
+              addDamageBoundaryPoint(pending.x, pending.y);
             }
           }
         }
@@ -1495,12 +1805,14 @@ function vroomkViewerHtml(): string {
         } else if (sprintHud) {
           sprintHud.style.display = 'none';
         }
-        // Reproject Measure / Search Image HTML pins whenever a frame runs.
+        // Reproject Measure / Search Image / Damage boundary pins whenever a frame runs.
         // Measure pins stay visible after leaving the tool until Delete All.
         if (
           measureMode ||
           measureNodes.length > 0 ||
-          (isSurfacePickMode() && (photoPickPoint || photoClickFlash))
+          damageNodes.length > 0 ||
+          (pickMode === 'photos' && (photoPickPoint || photoClickFlash)) ||
+          (pickMode === 'damage' && photoClickFlash)
         ) {
           drawToolOverlay();
         }
@@ -1519,37 +1831,37 @@ function vroomkViewerHtml(): string {
     }
   </script>
 </body>
-</html>`
+</html>`;
 }
 
 export function createPaymentSession(session: PaymentSession): string {
-  if (!origin) throw new Error('Media server is not running')
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  paymentSessions.set(id, session)
+  if (!origin) throw new Error("Media server is not running");
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  paymentSessions.set(id, session);
   // Drop after 30 minutes.
-  setTimeout(() => paymentSessions.delete(id), 30 * 60 * 1000).unref?.()
-  return `${origin}/stripe-pay/${encodeURIComponent(id)}`
+  setTimeout(() => paymentSessions.delete(id), 30 * 60 * 1000).unref?.();
+  return `${origin}/stripe-pay/${encodeURIComponent(id)}`;
 }
 
 function escapeJs(value: string): string {
   return value
-    .replace(/\\/g, '\\\\')
+    .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
+    .replace(/\n/g, "\\n");
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function stripePaymentHtml(session: PaymentSession): string {
-  const pk = escapeJs(session.publishableKey)
-  const secret = escapeJs(session.clientSecret)
-  const amount = escapeHtml(session.amountDisplay)
+  const pk = escapeJs(session.publishableKey);
+  const secret = escapeJs(session.clientSecret);
+  const amount = escapeHtml(session.amountDisplay);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -1645,5 +1957,5 @@ function stripePaymentHtml(session: PaymentSession): string {
     });
   </script>
 </body>
-</html>`
+</html>`;
 }

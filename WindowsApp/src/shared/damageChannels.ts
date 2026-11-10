@@ -29,12 +29,22 @@ export type DamageAnalyzeRequest = {
    * Used so area/cost estimates are real-world, not photo guesses.
    */
   measureFactor?: number
+  /**
+   * Screenshot of the 3D view with the user-marked orange region.
+   * Sent as a visual guide: stay inside this area. Does not replace photo analysis.
+   */
+  regionGuideImageDataUrl?: string
 }
 
 export type DamageAnalyzeResponse = {
   report: WallDamageReport
   model: string
   imageCount: number
-  /** Damaged areas on the primary photo — drawn client-side as an outline. */
+  /** Primary outline (first / best photo) — kept for back-compat. */
   outline: DamageOutline | null
+  /**
+   * All outlines used for annotation. Usually 1 photo; extra photos only when
+   * issues are not all visible on the primary frame.
+   */
+  outlines: DamageOutline[]
 }
