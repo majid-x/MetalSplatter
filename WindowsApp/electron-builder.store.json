@@ -31,9 +31,9 @@
   },
   "appx": {
     "applicationId": "Vroomk",
-    "identityName": "REPLACE_WITH_PARTNER_CENTER_IDENTITY_NAME",
-    "publisher": "CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID",
-    "publisherDisplayName": "REPLACE_WITH_PARTNER_CENTER_PUBLISHER_DISPLAY_NAME",
+    "identityName": "Vroomk.Vroomk",
+    "publisher": "CN=D31AC5A3-5651-4B16-AE7B-07AB87B913E7",
+    "publisherDisplayName": "Vroomk",
     "displayName": "Vroomk",
     "languages": ["en-US"],
     "showNameOnTiles": false,
