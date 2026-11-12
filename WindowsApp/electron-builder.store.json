@@ -1,0 +1,46 @@
+{
+  "appId": "com.vroomk.windows",
+  "productName": "Vroomk",
+  "copyright": "Copyright © Vroomk",
+  "directories": {
+    "output": "release-store",
+    "buildResources": "assets"
+  },
+  "files": [
+    "out/**/*",
+    "viewer/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": ".env",
+      "to": ".env"
+    }
+  ],
+  "asar": true,
+  "win": {
+    "target": [
+      {
+        "target": "appx",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/logo2.png",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "appx": {
+    "applicationId": "Vroomk",
+    "identityName": "REPLACE_WITH_PARTNER_CENTER_IDENTITY_NAME",
+    "publisher": "CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID",
+    "publisherDisplayName": "REPLACE_WITH_PARTNER_CENTER_PUBLISHER_DISPLAY_NAME",
+    "displayName": "Vroomk",
+    "languages": ["en-US"],
+    "showNameOnTiles": false,
+    "setBuildNumber": false,
+    "minVersion": "10.0.17763.0",
+    "maxVersionTested": "10.0.22621.0",
+    "backgroundColor": "#000000",
+    "capabilities": ["runFullTrust", "internetClient"]
+  }
+}

@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "dist": "npm run build && electron-builder --win",
     "dist:test": "npm run build && electron-builder --win --config electron-builder.test.json",
+    "dist:store": "npm run build && electron-builder --win --config electron-builder.store.json",
     "dist:dir": "npm run build && electron-builder --win --dir"
   },
   "dependencies": {
@@ -79,6 +80,16 @@
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "appx": {
+      "applicationId": "Vroomk",
+      "displayName": "Vroomk",
+      "languages": ["en-US"],
+      "setBuildNumber": false,
+      "minVersion": "10.0.17763.0",
+      "maxVersionTested": "10.0.22621.0",
+      "backgroundColor": "#000000",
+      "capabilities": ["runFullTrust", "internetClient"]
     }
   }
 }
