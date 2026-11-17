@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { analyzeDamageFromPhotos, cleanIpcError, type DamageStage } from '../lib/damageEstimation'
 import { gatherPhotosForDamageBoundary } from '../lib/damagePhotoGather'
 import { buildScopeCrop, type ScopeCrop } from '../lib/damageRoi'
@@ -123,6 +124,8 @@ export function ViewerToolsPanel({
   const [photoStatus, setPhotoStatus] = useState('Click a surface to find photos.')
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoHasMore, setPhotoHasMore] = useState(false)
+  /** Mac PhotoSearchSidePanel fullscreenIndex — click a card to open. */
+  const [photoFullscreenIndex, setPhotoFullscreenIndex] = useState<number | null>(null)
   /** SplatClickQuery: grows max_results on Fetch More (6 → 12 → 18 …), offset stays 0. */
   const [photoMaxResults, setPhotoMaxResults] = useState(6)
   const PHOTO_PAGE_SIZE = 6
@@ -406,6 +409,7 @@ export function ViewerToolsPanel({
     // Clear old results immediately on a new pick so they don't linger while the API runs.
     if (!append) {
       setPhotos([])
+      setPhotoFullscreenIndex(null)
       setPhotoHasMore(false)
       setPhotoMaxResults(PHOTO_PAGE_SIZE)
     }
@@ -437,6 +441,7 @@ export function ViewerToolsPanel({
       if (gen !== photoSearchGenRef.current) return
       if (!append) {
         setPhotos([])
+        setPhotoFullscreenIndex(null)
         setPhotoMaxResults(PHOTO_PAGE_SIZE)
       }
       setPhotoHasMore(false)
@@ -647,10 +652,16 @@ export function ViewerToolsPanel({
             ) : (
               <>
                 <div className="photo-mac-list">
-                  {photos.map((photo) => (
-                    <figure key={`${photo.id}-${photo.filename}`} className="photo-mac-card">
+                  {photos.map((photo, index) => (
+                    <button
+                      key={`${photo.id}-${photo.filename}`}
+                      type="button"
+                      className="photo-mac-card"
+                      onClick={() => setPhotoFullscreenIndex(index)}
+                      aria-label={`Open ${photo.filename}`}
+                    >
                       {photo.imageDataUrl ? (
-                        <img src={photo.imageDataUrl} alt={photo.filename} />
+                        <img src={photo.imageDataUrl} alt="" />
                       ) : (
                         <div className="photo-fallback">{photo.filename}</div>
                       )}
@@ -661,9 +672,17 @@ export function ViewerToolsPanel({
                           {photo.is360 ? ' · 360°' : ''}
                         </span>
                       </figcaption>
-                    </figure>
+                    </button>
                   ))}
                 </div>
+                {photoFullscreenIndex != null && photos[photoFullscreenIndex] ? (
+                  <PhotoFullscreenLightbox
+                    photos={photos}
+                    index={photoFullscreenIndex}
+                    onIndex={setPhotoFullscreenIndex}
+                    onClose={() => setPhotoFullscreenIndex(null)}
+                  />
+                ) : null}
                 {photoHasMore && (
                   <button
                     type="button"
@@ -785,6 +804,108 @@ export function ViewerToolsPanel({
         )}
       </div>
     </aside>
+  )
+}
+
+/** Mac PhotoFullscreenViewer — full-window open on card click; Esc / backdrop closes. */
+function PhotoFullscreenLightbox({
+  photos,
+  index,
+  onIndex,
+  onClose
+}: {
+  photos: PhotoSearchResult[]
+  index: number
+  onIndex: (index: number) => void
+  onClose: () => void
+}) {
+  const count = photos.length
+  const photo = photos[index]
+  const go = (delta: number) => {
+    const next = index + delta
+    if (next < 0 || next >= count) return
+    onIndex(next)
+  }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+      else if (event.key === 'ArrowRight') go(1)
+      else if (event.key === 'ArrowLeft') go(-1)
+      else return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, count, onClose])
+
+  if (!photo) return null
+
+  return createPortal(
+    <div className="damage-lightbox" role="dialog" aria-modal="true" onClick={onClose}>
+      {photo.imageDataUrl ? (
+        <img
+          className="damage-lightbox-image"
+          src={photo.imageDataUrl}
+          alt={photo.filename}
+          onClick={(event) => event.stopPropagation()}
+        />
+      ) : (
+        <div className="damage-lightbox-bar" onClick={(event) => event.stopPropagation()}>
+          {photo.filename}
+        </div>
+      )}
+      <div className="damage-lightbox-bar" onClick={(event) => event.stopPropagation()}>
+        <span>
+          {photo.filename}
+          {photo.is360 ? ' · 360°' : ''}
+        </span>
+        {count > 1 ? (
+          <span className="damage-lightbox-count">
+            {index + 1} / {count}
+          </span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="damage-lightbox-close"
+        aria-label="Close"
+        onClick={onClose}
+      >
+        ×
+      </button>
+      {count > 1 ? (
+        <>
+          <button
+            type="button"
+            className="damage-lightbox-nav prev"
+            aria-label="Previous image"
+            disabled={index <= 0}
+            onClick={(event) => {
+              event.stopPropagation()
+              go(-1)
+            }}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="damage-lightbox-nav next"
+            aria-label="Next image"
+            disabled={index >= count - 1}
+            onClick={(event) => {
+              event.stopPropagation()
+              go(1)
+            }}
+          >
+            ›
+          </button>
+        </>
+      ) : null}
+    </div>,
+    document.body
   )
 }
 

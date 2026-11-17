@@ -98,6 +98,19 @@ export function ProjectCard({
                   type="button"
                   onClick={() => {
                     setMenuOpen(false)
+                    const remote = project.remoteURL.toLowerCase()
+                    let path = remote
+                    try {
+                      path = new URL(project.remoteURL).pathname.toLowerCase()
+                    } catch {
+                      // keep raw
+                    }
+                    if (path.endsWith('.zip')) {
+                      window.alert(
+                        'Open in web needs a direct .ply / .sog / .splat URL. This project is still a .zip (desktop unpacks it; web cannot yet).'
+                      )
+                      return
+                    }
                     const url = buildProjectWebUrl(project)
                     void window.avgs.shell.openExternal(url).catch((error) => {
                       console.error('Open in web failed', error)

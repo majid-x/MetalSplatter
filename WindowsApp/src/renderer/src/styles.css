@@ -1603,11 +1603,27 @@ h1 {
 }
 
 .photo-mac-card {
+  display: block;
+  width: 100%;
   margin: 0;
+  padding: 0;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgb(17, 24, 39);
+  color: inherit;
+  text-align: left;
+  cursor: zoom-in;
+  font: inherit;
+}
+
+.photo-mac-card:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.photo-mac-card:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.7);
+  outline-offset: 2px;
 }
 
 .photo-mac-card img,

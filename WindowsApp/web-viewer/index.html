@@ -167,8 +167,20 @@
         errorDetail.textContent = message
       }
 
+      const contentPath = (() => {
+        try {
+          return new URL(contentUrl).pathname.toLowerCase()
+        } catch {
+          return ''
+        }
+      })()
+
       if (!contentUrl || !/^https?:\/\//i.test(contentUrl)) {
         showError('This link is missing a valid scene URL (content=https://…).')
+      } else if (contentPath.endsWith('.zip')) {
+        showError(
+          'This project is a .zip package. The web viewer needs a direct .ply / .sog / .splat URL (desktop app unpacks the zip first).'
+        )
       } else {
         try {
           await createViewer({ container: document.body, settings, ...options })
