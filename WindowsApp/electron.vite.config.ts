@@ -11,13 +11,24 @@ export default defineConfig(({ mode }) => {
     process.env.DEEPSEEK_API_KEY ||
     ''
   ).trim()
+  // Production/MSIX: damage off. Dev + `--mode damage` (Vroomk Test): on.
+  const damageFromEnv = process.env.VROOMK_DAMAGE_ESTIMATION
+  const damageEnabled =
+    damageFromEnv === '1'
+      ? true
+      : damageFromEnv === '0'
+        ? false
+        : mode === 'damage' || mode === 'development'
+
+  const featureDefines = {
+    __DEEPSEEK_API_KEY__: JSON.stringify(deepseekKey),
+    __VROOMK_DAMAGE_ESTIMATION__: JSON.stringify(damageEnabled)
+  }
 
   return {
     main: {
       plugins: [externalizeDepsPlugin()],
-      define: {
-        __DEEPSEEK_API_KEY__: JSON.stringify(deepseekKey)
-      },
+      define: featureDefines,
       build: {
         rollupOptions: {
           input: {
@@ -28,6 +39,9 @@ export default defineConfig(({ mode }) => {
     },
     preload: {
       plugins: [externalizeDepsPlugin()],
+      define: {
+        __VROOMK_DAMAGE_ESTIMATION__: JSON.stringify(damageEnabled)
+      },
       build: {
         rollupOptions: {
           input: {
@@ -38,6 +52,9 @@ export default defineConfig(({ mode }) => {
     },
     renderer: {
       root: resolve('src/renderer'),
+      define: {
+        __VROOMK_DAMAGE_ESTIMATION__: JSON.stringify(damageEnabled)
+      },
       build: {
         rollupOptions: {
           input: {

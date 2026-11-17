@@ -25,6 +25,8 @@ import {
 import { HTTP_PROXY_CHANNELS, type HttpProxyRequest, type HttpProxyResponse } from '../shared/httpProxyChannels'
 import { PAYMENT_CHANNELS, type PaymentSessionRequest } from '../shared/paymentChannels'
 import { VIEWER_CHANNELS, type ViewerLaunchOptions } from '../shared/viewerChannels'
+import { SHELL_CHANNELS } from '../shared/shellChannels'
+import { DAMAGE_ESTIMATION_ENABLED } from '../shared/features'
 
 const authStorage = {
   get: (key: string): Promise<string | null> =>
@@ -110,6 +112,11 @@ const files = {
   pathFor: (file: File): string => webUtils.getPathForFile(file)
 }
 
+const shellApi = {
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url)
+}
+
 const damage = {
   analyze: (payload: DamageAnalyzeRequest): Promise<DamageAnalyzeResponse> =>
     ipcRenderer.invoke(DAMAGE_CHANNELS.analyze, payload),
@@ -139,6 +146,9 @@ contextBridge.exposeInMainWorld('avgs', {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
+  features: {
+    damageEstimation: DAMAGE_ESTIMATION_ENABLED
+  },
   authStorage,
   projects,
   viewer,
@@ -147,5 +157,6 @@ contextBridge.exposeInMainWorld('avgs', {
   booking,
   http,
   damage,
-  files
+  files,
+  shell: shellApi
 })

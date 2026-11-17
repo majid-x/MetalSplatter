@@ -1,0 +1,3 @@
+# Optional: if the site root hosts these files under /view/, keep directory indexes on.
+# Pretty /view/<projectId> URLs also work with this rewrite (app links use /view/?… by default).
+/view/*    /view/index.html   200

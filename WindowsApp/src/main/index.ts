@@ -5,6 +5,7 @@ import { registerAuthStorageIpc } from './authStorage'
 import { registerBookingProxyIpc } from './bookingProxy'
 import { registerDamageIpc } from './deepseekDamage'
 import { registerDamageReportsIpc } from './damageReports'
+import { DAMAGE_ESTIMATION_ENABLED } from '../shared/features'
 import { registerHttpProxyIpc } from './httpProxy'
 import { loadEnvFile } from './loadEnv'
 import { registerProjectDownloadIpc } from './projectDownloadIpc'
@@ -19,6 +20,7 @@ import { CAPTURE_CHANNELS, type CaptureRegionRequest } from '../shared/captureCh
 import { handle } from './ipc'
 import { PAYMENT_CHANNELS } from '../shared/paymentChannels'
 import { VIEWER_CHANNELS } from '../shared/viewerChannels'
+import { SHELL_CHANNELS } from '../shared/shellChannels'
 
 let windowCreated = false
 
@@ -28,12 +30,27 @@ function registerIpc(): void {
   registerProjectDownloadIpc()
   registerBookingProxyIpc()
   registerHttpProxyIpc()
-  registerDamageIpc()
-  registerDamageReportsIpc()
+  if (DAMAGE_ESTIMATION_ENABLED) {
+    registerDamageIpc()
+    registerDamageReportsIpc()
+  }
 
   handle(VIEWER_CHANNELS.origin, async () => getMediaServerOrigin())
   handle(VIEWER_CHANNELS.buildUrl, async (_event, options) => buildViewerUrl(options))
   handle(PAYMENT_CHANNELS.createSession, async (_event, payload) => createPaymentSession(payload))
+  handle(SHELL_CHANNELS.openExternal, async (_event, url: string) => {
+    const raw = typeof url === 'string' ? url.trim() : ''
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      throw new Error('Invalid URL.')
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Only http(s) links can be opened.')
+    }
+    await shell.openExternal(parsed.toString())
+  })
   handle(CAPTURE_CHANNELS.region, async (event, region: CaptureRegionRequest): Promise<string> => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) throw new Error('No window to capture.')

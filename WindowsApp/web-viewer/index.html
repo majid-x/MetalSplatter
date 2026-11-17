@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Vroomk</title>
+    <!-- Deploy this folder at https://www.vroomk.com/view/ and rewrite /view/* → /view/index.html -->
+    <base href="/view/" />
+    <link rel="stylesheet" href="./index.css" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        color: #fff;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      #boot-error {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+        background: #0a0a0a;
+      }
+      #boot-error.on {
+        display: grid;
+      }
+      #boot-error h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px;
+      }
+      #boot-error p {
+        margin: 0;
+        opacity: 0.7;
+        font-size: 13px;
+        max-width: 420px;
+        line-height: 1.45;
+      }
+      #boot-banner {
+        position: fixed;
+        left: 50%;
+        top: 12px;
+        transform: translateX(-50%);
+        z-index: 40;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: rgba(12, 16, 22, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        font-size: 12px;
+        pointer-events: none;
+        transition: opacity 0.6s ease;
+      }
+    </style>
+    <script type="application/json" id="sse-bootstrap">
+      null
+    </script>
+    <script type="module">
+      const createImage = (url) => {
+        const img = new Image()
+        img.src = url
+        return img
+      }
+
+      const url = new URL(location.href)
+      const name = url.searchParams.get('name') || 'Vroomk'
+      document.title = `${name} · Vroomk`
+
+      const bootstrap = JSON.parse(document.getElementById('sse-bootstrap').textContent) ?? {}
+
+      const posterUrl = url.searchParams.get('poster') ?? bootstrap.posterUrl ?? null
+      const skyboxUrl = url.searchParams.get('skybox') ?? bootstrap.skyboxUrl ?? null
+      const collisionUrl =
+        url.searchParams.get('collision') ??
+        url.searchParams.get('voxel') ??
+        bootstrap.collisionUrl ??
+        null
+      const settingsUrl = url.searchParams.get('settings') ?? bootstrap.settingsUrl ?? './settings.json'
+      const contentUrl = url.searchParams.get('content') ?? bootstrap.contentUrl ?? ''
+      const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null
+      const contentFilename = url.searchParams.has('content')
+        ? null
+        : (bootstrap.contentFilename ?? null)
+
+      // Default to WebGL so Quest / mobile browsers can run the walkthrough (WebXR path).
+      const renderer =
+        url.searchParams.has('webgpu') && !url.searchParams.has('webgl') ? 'webgpu' : 'webgl'
+
+      const budgetParam = url.searchParams.get('budget')
+      const budget = budgetParam !== null ? Number(budgetParam) : undefined
+
+      const contentName =
+        contentFilename ?? (contentUrl ? new URL(contentUrl, location.href).pathname.split('/').pop() : '') ?? ''
+      const prefetchContent =
+        Boolean(contentUrl) && contentName.toLowerCase() !== 'lod-meta.json'
+
+      window.sse = {
+        contentUrl,
+        projectName: name,
+        options: {
+          contentUrl,
+          contentFilename,
+          posterUrl,
+          skyboxUrl,
+          collisionUrl,
+          gsafDecoderUrl,
+          poster: posterUrl && createImage(posterUrl),
+          contents: prefetchContent ? fetch(contentUrl) : undefined,
+          ui: !url.searchParams.has('noui'),
+          reticle: url.searchParams.has('reticle'),
+          noanim: url.searchParams.has('noanim'),
+          nofx: url.searchParams.has('nofx'),
+          hpr: url.searchParams.has('hpr')
+            ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr'))
+            : undefined,
+          ministats: url.searchParams.has('ministats'),
+          colorize: url.searchParams.has('colorize'),
+          renderer,
+          aa: url.searchParams.has('aa'),
+          stochastic: url.searchParams.has('stochastic')
+            ? url.searchParams.get('stochastic') === 'mobile'
+              ? 'mobile'
+              : url.searchParams.get('stochastic') === 'off'
+                ? 'off'
+                : true
+            : false,
+          budget,
+          fullload: url.searchParams.has('fullload'),
+          vr: url.searchParams.has('vr') || !url.searchParams.has('novr'),
+          debug: url.searchParams.has('debug'),
+          lang: url.searchParams.get('lang'),
+          exposeGlobals: true
+        },
+        settings: bootstrap.settings ?? fetch(settingsUrl).then((response) => response.json())
+      }
+    </script>
+  </head>
+  <body>
+    <div id="boot-banner">Loading scene…</div>
+    <div id="boot-error">
+      <div>
+        <h1>Couldn’t open this project</h1>
+        <p id="boot-error-detail">
+          This link is missing a scene URL. Open it from the Vroomk app via Open in web.
+        </p>
+      </div>
+    </div>
+    <script type="module">
+      import { createViewer } from './index.js'
+
+      const banner = document.getElementById('boot-banner')
+      const errorEl = document.getElementById('boot-error')
+      const errorDetail = document.getElementById('boot-error-detail')
+      const { options, settings, contentUrl } = window.sse
+
+      function showError(message) {
+        banner.style.display = 'none'
+        errorEl.classList.add('on')
+        errorDetail.textContent = message
+      }
+
+      if (!contentUrl || !/^https?:\/\//i.test(contentUrl)) {
+        showError('This link is missing a valid scene URL (content=https://…).')
+      } else {
+        try {
+          await createViewer({ container: document.body, settings, ...options })
+          banner.textContent = 'Drag to look · WASD / sticks to move'
+          setTimeout(() => {
+            banner.style.opacity = '0.35'
+          }, 4500)
+        } catch (err) {
+          console.error(err)
+          showError(
+            err instanceof Error
+              ? err.message
+              : 'Viewer failed to start. Try again in a desktop or Quest browser.'
+          )
+        }
+      }
+    </script>
+  </body>
+</html>

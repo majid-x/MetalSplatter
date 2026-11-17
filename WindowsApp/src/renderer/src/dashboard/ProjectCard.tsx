@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatBytes } from '../lib/formatBytes'
+import { buildProjectWebUrl } from '../lib/projectWebUrl'
 import { useDownloads } from '../projects/DownloadContext'
 import { projectAccent, projectCategoryLabel, type RemoteProject } from '../projects/types'
 
@@ -93,6 +94,18 @@ export function ProjectCard({
             </button>
             {menuOpen && (
               <div className="card-menu-panel">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    const url = buildProjectWebUrl(project)
+                    void window.avgs.shell.openExternal(url).catch((error) => {
+                      console.error('Open in web failed', error)
+                    })
+                  }}
+                >
+                  Open in web
+                </button>
                 {status.state === 'downloading' && (
                   <button
                     type="button"

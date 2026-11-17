@@ -14,6 +14,7 @@ import {
   type ViewerPickMode
 } from '../viewer/SuperSplatViewer'
 import { ViewerToolsPanel, type ViewerToolId } from '../viewer/ViewerToolsPanel'
+import { DAMAGE_ESTIMATION_ENABLED } from '../../../shared/features'
 
 type Phase = 'downloading' | 'unpacking' | 'ready' | { failed: string }
 
@@ -137,6 +138,8 @@ export function ProjectViewerView({
             : phase
   const progress = status.state === 'downloading' ? status.progress : null
   const supportsPhotoSearch = Boolean(project.photoAPIBaseURL)
+  const supportsDamageEstimation =
+    DAMAGE_ESTIMATION_ENABLED && supportsPhotoSearch
   const hasTopDownCut = Boolean(opened?.navSummary?.hasTopDownCut)
 
   const title = useMemo(() => {
@@ -213,6 +216,7 @@ export function ProjectViewerView({
   }
 
   function setDamageOn(enabled: boolean) {
+    if (!supportsDamageEstimation) return
     clearModes()
     dismissMeasureTool()
     setDamageBoundaryComplete(null)
@@ -454,7 +458,7 @@ export function ProjectViewerView({
                 </button>
               )}
 
-              {supportsPhotoSearch && (
+              {supportsDamageEstimation && (
                 <button
                   type="button"
                   className={`viewer-rail-btn accent-amber ${activeTool === 'damage' ? 'active' : ''}`}
@@ -467,7 +471,7 @@ export function ProjectViewerView({
                 </button>
               )}
 
-              {activeTool === 'damage' && (
+              {supportsDamageEstimation && activeTool === 'damage' && (
                 <div className="viewer-rail-subrow">
                   <button
                     type="button"

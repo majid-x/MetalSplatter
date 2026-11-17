@@ -65,6 +65,10 @@ export interface AvgsFilesBridge {
   pathFor: (file: File) => string
 }
 
+export interface AvgsShellBridge {
+  openExternal: (url: string) => Promise<void>
+}
+
 export interface AvgsViewerBridge {
   getOrigin: () => Promise<string>
   buildUrl: (options: ViewerLaunchOptions | string) => Promise<string>
@@ -98,6 +102,10 @@ export interface AvgsDamageBridge {
   removeAll: () => Promise<void>
 }
 
+export interface AvgsFeatures {
+  damageEstimation: boolean
+}
+
 export interface AvgsBridge {
   platform: NodeJS.Platform
   versions: {
@@ -105,6 +113,7 @@ export interface AvgsBridge {
     chrome: string
     node: string
   }
+  features: AvgsFeatures
   authStorage: AvgsAuthStorage
   projects: AvgsProjectsBridge
   viewer: AvgsViewerBridge
@@ -114,7 +123,10 @@ export interface AvgsBridge {
   http: AvgsHttpBridge
   damage: AvgsDamageBridge
   files: AvgsFilesBridge
+  shell: AvgsShellBridge
 }
+
+declare const __VROOMK_DAMAGE_ESTIMATION__: boolean
 
 declare global {
   interface Window {

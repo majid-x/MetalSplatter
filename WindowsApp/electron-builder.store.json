@@ -4,7 +4,7 @@
   "copyright": "Copyright © Vroomk",
   "directories": {
     "output": "release-store",
-    "buildResources": "assets"
+    "buildResources": "build"
   },
   "files": [
     "out/**/*",
@@ -26,7 +26,7 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "assets/logo2.png",
+    "icon": "build/icon.ico",
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   },
   "appx": {
